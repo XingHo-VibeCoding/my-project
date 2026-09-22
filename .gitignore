@@ -14,3 +14,9 @@ node_modules/
 
 # 日志
 *.log
+
+# Day 7 MVP：Python 虚拟环境与运行时数据（不入库）
+.venv/
+data/*.db
+__pycache__/
+*.pyc

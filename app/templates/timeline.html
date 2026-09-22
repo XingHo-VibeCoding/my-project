@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>待办时间线 — 群消息智能提醒助手</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", system-ui, sans-serif;
+    background: #f5f6f8; color: #2c2c2e; padding: 20px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 24px; }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header p { font-size: 12px; color: #8a8a8e; margin-top: 4px; }
+  .stats { display: flex; gap: 10px; justify-content: center; margin-bottom: 22px; }
+  .stat {
+    background: #fff; border-radius: 10px; padding: 10px 18px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); min-width: 90px;
+  }
+  .stat b { display: block; font-size: 22px; color: #d85a30; }
+  .stat span { font-size: 11px; color: #8a8a8e; }
+  h2 {
+    font-size: 13px; color: #6b6b70; margin: 18px 4px 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2::before { content: ""; width: 4px; height: 14px; background: #d85a30; border-radius: 2px; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); position: relative;
+    border-left: 4px solid #d85a30;
+  }
+  .card .top { display: flex; justify-content: space-between; gap: 10px; }
+  .card .who { font-size: 12px; color: #8a8a8e; }
+  .card .what { font-size: 14px; line-height: 1.55; margin-top: 4px; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: #faeeda; color: #854f0b; white-space: nowrap;
+  }
+  .badge.chat { background: #eef1f4; color: #6b6b70; }
+  .countdown {
+    margin-top: 8px; font-size: 12px; color: #993c1d; font-weight: 600;
+  }
+  .countdown .num { font-variant-numeric: tabular-nums; }
+  .empty {
+    text-align: center; color: #b0b0b5; font-size: 13px;
+    padding: 30px 0; background: #fff; border-radius: 12px;
+  }
+  footer { text-align: center; font-size: 11px; color: #b0b0b5; margin-top: 26px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📌 群消息智能提醒助手</h1>
+    <p>重要事项时间线 · Day 7 MVP · 数据来自本地 messages / judgments 表</p>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><b id="n-all">–</b><span>重要事项</span></div>
+    <div class="stat"><b id="n-dl">–</b><span>带截止</span></div>
+    <div class="stat"><b id="n-no">–</b><span>无时限</span></div>
+  </div>
+
+  <h2>⏰ 带截止时间（按截止先后）</h2>
+  <div id="list-dl"></div>
+
+  <h2>📭 无时限</h2>
+  <div id="list-no"></div>
+
+  <footer>
+    服务地址 http://localhost:8000 · F1 接收 /api/messages · F4 数据 /api/timeline<br>
+    群名/发送人/内容/截止时间 均由 F2 规则引擎自动判断（DeepSeek 升级位已留）
+  </footer>
+</div>
+
+<script>
+// 倒计时目标：今天 22:00（规则引擎提取的是「22:00」这类时刻，MVP 以当天为基准演示 F4-4）
+const DL_TARGET = new Date();
+DL_TARGET.setHours(22, 0, 0, 0);
+if (DL_TARGET < new Date()) DL_TARGET.setDate(DL_TARGET.getDate() + 1);
+
+function fmt(diffMs) {
+  if (diffMs <= 0) return "已截止";
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.floor(diffMs % 3600000 / 60000);
+  const s = Math.floor(diffMs % 60000 / 1000);
+  return `剩 <span class="num">${h}</span> 小时 <span class="num">${m}</span> 分 <span class="num">${s}</span> 秒`;
+}
+
+function tick() {
+  document.querySelectorAll(".countdown[data-live]").forEach(el => {
+    el.innerHTML = fmt(DL_TARGET - new Date());
+  });
+}
+
+async function load() {
+  const items = await (await fetch("/api/timeline")).json();
+  document.getElementById("n-all").textContent = items.length;
+  const withDl = items.filter(x => x.deadline);
+  const noDl = items.filter(x => !x.deadline);
+  document.getElementById("n-dl").textContent = withDl.length;
+  document.getElementById("n-no").textContent = noDl.length;
+
+  const card = (t, live) => `
+    <div class="card">
+      <div class="top">
+        <span class="who">${t.group_name || "私聊"} · ${t.sender}</span>
+        <span class="badge">${t.deadline || "无时限"}</span>
+      </div>
+      <div class="what">${t.summary || ""}</div>
+      ${live ? `<div class="countdown" data-live>…</div>` : ""}
+    </div>`;
+
+  document.getElementById("list-dl").innerHTML =
+    withDl.length ? withDl.map(t => card(t, true)).join("") : `<div class="empty">暂无带截止时间的待办</div>`;
+  document.getElementById("list-no").innerHTML =
+    noDl.length ? noDl.map(t => card(t, false)).join("") : `<div class="empty">暂无无时限的重要事项</div>`;
+  tick();
+}
+load();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

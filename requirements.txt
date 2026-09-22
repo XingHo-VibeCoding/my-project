@@ -1,0 +1,7 @@
+# Day 7 MVP 依赖清单（依据 TECH_DESIGN 第四节）
+# 安装：.venv\Scripts\pip install -r requirements.txt
+fastapi
+uvicorn
+jinja2
+httpx
+# openai —— 接 DeepSeek（F2 升级版）那天再加装，规则引擎版用不到
