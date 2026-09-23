@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>待办时间线 — 群消息智能提醒助手</title>
+<title>主视图 · 群消息智能提醒助手</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -13,7 +13,7 @@
   .wrap { max-width: 680px; margin: 0 auto; }
   header { text-align: center; margin-bottom: 24px; }
   header h1 { font-size: 20px; font-weight: 600; }
-  header p { font-size: 12px; color: #8a8a8e; margin-top: 4px; }
+  header p { font-size: 12px; color: #8a8a8e; margin-top: 4px; line-height: 1.6; }
   .stats { display: flex; gap: 10px; justify-content: center; margin-bottom: 22px; }
   .stat {
     background: #fff; border-radius: 10px; padding: 10px 18px; text-align: center;
@@ -26,12 +26,14 @@
     display: flex; align-items: center; gap: 8px;
   }
   h2::before { content: ""; width: 4px; height: 14px; background: #d85a30; border-radius: 2px; }
+
+  /* 卡片（结构与样式来自组件 message-card.js） */
   .card {
     background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.06); position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
     border-left: 4px solid #d85a30;
   }
-  .card .top { display: flex; justify-content: space-between; gap: 10px; }
+  .card .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
   .card .who { font-size: 12px; color: #8a8a8e; }
   .card .what { font-size: 14px; line-height: 1.55; margin-top: 4px; }
   .badge {
@@ -39,22 +41,57 @@
     background: #faeeda; color: #854f0b; white-space: nowrap;
   }
   .badge.chat { background: #eef1f4; color: #6b6b70; }
-  .countdown {
-    margin-top: 8px; font-size: 12px; color: #993c1d; font-weight: 600;
-  }
+  .countdown { margin-top: 8px; font-size: 12px; color: #993c1d; font-weight: 600; }
   .countdown .num { font-variant-numeric: tabular-nums; }
+  .origin { margin-top: 8px; }
+  .origin summary { font-size: 12px; color: #8a8a8e; cursor: pointer; outline: none; }
+  .origin p {
+    font-size: 12px; color: #6b6b70; line-height: 1.65; margin-top: 6px;
+    background: #f7f8fa; padding: 8px 10px; border-radius: 8px;
+  }
+  .meta { font-size: 11px; color: #b0b0b5; margin-top: 8px; }
+
+  /* 加载中：骨架屏 */
+  .sk-card {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .sk-line {
+    height: 12px; border-radius: 6px; margin: 9px 0;
+    background: linear-gradient(90deg, #eceef1 25%, #f7f8fa 37%, #eceef1 63%);
+    background-size: 400% 100%; animation: sk 1.2s ease infinite;
+  }
+  .sk-line.w60 { width: 60%; } .sk-line.w90 { width: 90%; } .sk-line.w40 { width: 40%; }
+  @keyframes sk { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+  /* 空状态 */
   .empty {
     text-align: center; color: #b0b0b5; font-size: 13px;
-    padding: 30px 0; background: #fff; border-radius: 12px;
+    padding: 30px 0; background: #fff; border-radius: 12px; line-height: 1.8;
   }
-  footer { text-align: center; font-size: 11px; color: #b0b0b5; margin-top: 26px; line-height: 1.8; }
+
+  /* 错误状态 */
+  .error-box {
+    background: #fff; border: 1px solid #f0cdc5; border-radius: 12px;
+    padding: 24px 18px; text-align: center;
+  }
+  .err-title { font-size: 14px; font-weight: 600; color: #a3341f; }
+  .err-msg { font-size: 12px; color: #8a8a8e; margin-top: 8px; line-height: 1.7; }
+  .error-box button {
+    margin-top: 14px; border: none; background: #d85a30; color: #fff;
+    font-size: 13px; padding: 8px 22px; border-radius: 999px; cursor: pointer;
+  }
+  .error-box button:hover { background: #bf4d27; }
+
+  footer { text-align: center; font-size: 11px; color: #b0b0b5; margin-top: 26px; line-height: 2; }
+  footer a { color: #8a8a8e; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>📌 群消息智能提醒助手</h1>
-    <p>重要事项时间线 · Day 7 MVP · 数据来自本地 messages / judgments 表</p>
+    <p>主视图（mock 数据版）· Day 8 · 页面数据全部是本地假数据，今天不接真实接口</p>
   </header>
 
   <div class="stats">
@@ -70,57 +107,148 @@
   <div id="list-no"></div>
 
   <footer>
-    服务地址 http://localhost:8000 · F1 接收 /api/messages · F4 数据 /api/timeline<br>
-    群名/发送人/内容/截止时间 均由 F2 规则引擎自动判断（DeepSeek 升级位已留）
+    主视图 http://localhost:8000/ · 数据来源：页面内 MOCK_TIMELINE<br>
+    第 3 周接真实接口时，把它换成 fetch("/api/timeline") 即可，字段同名、组件不动<br>
+    状态预览：<a href="/?state=loading">加载中</a> · <a href="/?state=empty">空</a> ·
+    <a href="/?state=error">错误</a> · <a href="/">正常</a>
   </footer>
 </div>
 
+<!-- 可复用卡片组件：卡片的 HTML 结构与截止时间换算都在这个文件里 -->
+<script src="/static/js/message-card.js"></script>
+
 <script>
-// 倒计时目标：今天 22:00（规则引擎提取的是「22:00」这类时刻，MVP 以当天为基准演示 F4-4）
-const DL_TARGET = new Date();
-DL_TARGET.setHours(22, 0, 0, 0);
-if (DL_TARGET < new Date()) DL_TARGET.setDate(DL_TARGET.getDate() + 1);
+/* ==========================================================================
+   mock 数据（本地假数据）—— 字段与 /api/timeline 的真实返回完全一致，
+   所以第 3 周换成真接口时，下面这段删掉、改成一次 fetch 就行。
+   说明：真实接口只返回 importance=important 的项，这里 6 条也全是 important，
+   保证「假数据」和「真数据」的形状一模一样。
+   全部 6 条：带截止 3 条 + 无时限 3 条。
+   ========================================================================== */
+var MOCK_TIMELINE = [
+  {
+    id: 1, importance: "important",
+    group_name: "学习打卡群", sender: "助教·小林",
+    content: "@所有人 今晚 21:00 直播答疑，讲 PRD 怎么落到 MVP，记得来。",
+    summary: "助教·小林：今晚 21:00 直播答疑，讲 PRD 怎么落到 MVP",
+    deadline: "今晚 21:00", received_at: "2026-09-23 18:40"
+  },
+  {
+    id: 2, importance: "important",
+    group_name: "学习打卡群", sender: "班长·小周",
+    content: "@所有人 周五 22:00 前把本周作业提交到班级仓库，仓库链接在群公告里。",
+    summary: "班长·小周：周五 22:00 前把本周作业提交到班级仓库",
+    deadline: "周五 22:00", received_at: "2026-09-23 19:02"
+  },
+  {
+    id: 3, importance: "important",
+    group_name: "工作对接群", sender: "产品·李工",
+    content: "接口字段改成 snake_case 了，明天 10:00 前对一下联调时间。",
+    summary: "产品·李工：接口字段改成 snake_case，明天 10:00 前对联调时间",
+    deadline: "明天 10:00", received_at: "2026-09-23 17:15"
+  },
+  {
+    id: 4, importance: "important",
+    group_name: "学习打卡群", sender: "助教·小林",
+    content: "注意：从下周起打卡时间改到 23:00 之前，别记错。",
+    summary: "助教·小林：从下周起打卡时间改到 23:00 之前",
+    deadline: null, received_at: "2026-09-23 16:20"
+  },
+  {
+    id: 5, importance: "important",
+    group_name: "工作对接群", sender: "测试·王姐",
+    content: "@我 刚发的测试包有个坑，先别装，等我重新打包。",
+    summary: "测试·王姐：刚发的测试包先别装，等我重新打包",
+    deadline: null, received_at: "2026-09-23 15:48"
+  },
+  {
+    id: 6, importance: "important",
+    group_name: "家人群", sender: "妈妈",
+    content: "周末回来吃饭，记得回个话。",
+    summary: "妈妈：周末回来吃饭，记得回个话",
+    deadline: null, received_at: "2026-09-23 12:30"
+  }
+];
 
-function fmt(diffMs) {
-  if (diffMs <= 0) return "已截止";
-  const h = Math.floor(diffMs / 3600000);
-  const m = Math.floor(diffMs % 3600000 / 60000);
-  const s = Math.floor(diffMs % 60000 / 1000);
-  return `剩 <span class="num">${h}</span> 小时 <span class="num">${m}</span> 分 <span class="num">${s}</span> 秒`;
+/* ==========================================================================
+   四种页面状态：加载中 / 正常 / 空 / 错误
+   用地址栏参数切换，方便逐个看效果（平时看不到的状态，今天先把它做出来）：
+     /?state=loading   加载中（停在骨架屏，不往下走）
+     /?state=empty     空（有数据接口但一条都没有）
+     /?state=error     错误（拿不到数据）
+     /                 正常（先 0.6 秒骨架屏，再渲染 mock 数据）
+   ========================================================================== */
+var STATE = new URLSearchParams(location.search).get("state") || "ok";
+var listDl = document.getElementById("list-dl");
+var listNo = document.getElementById("list-no");
+
+function setStats(all, dl, no) {
+  document.getElementById("n-all").textContent = all;
+  document.getElementById("n-dl").textContent = dl;
+  document.getElementById("n-no").textContent = no;
 }
 
-function tick() {
-  document.querySelectorAll(".countdown[data-live]").forEach(el => {
-    el.innerHTML = fmt(DL_TARGET - new Date());
+function showLoading() {
+  setStats("–", "–", "–");
+  listDl.innerHTML = MessageCard.skeleton(2);
+  listNo.innerHTML = MessageCard.skeleton(1);
+}
+
+function showOk(items) {
+  var withDeadline = items.filter(function (x) { return !!x.deadline; });
+  var noDeadline = items.filter(function (x) { return !x.deadline; });
+
+  // 带截止的按剩余时间从近到远排
+  withDeadline.sort(function (a, b) {
+    var ta = MessageCard.deadlineTarget(a.deadline);
+    var tb = MessageCard.deadlineTarget(b.deadline);
+    return (ta ? ta.getTime() : Infinity) - (tb ? tb.getTime() : Infinity);
   });
+
+  setStats(items.length, withDeadline.length, noDeadline.length);
+  listDl.innerHTML = withDeadline.length
+    ? withDeadline.map(MessageCard.render).join("")
+    : MessageCard.empty("暂无带截止时间的待办");
+  listNo.innerHTML = noDeadline.length
+    ? noDeadline.map(MessageCard.render).join("")
+    : MessageCard.empty("暂无无时限的重要事项");
+  MessageCard.startTimers();
 }
 
-async function load() {
-  const items = await (await fetch("/api/timeline")).json();
-  document.getElementById("n-all").textContent = items.length;
-  const withDl = items.filter(x => x.deadline);
-  const noDl = items.filter(x => !x.deadline);
-  document.getElementById("n-dl").textContent = withDl.length;
-  document.getElementById("n-no").textContent = noDl.length;
-
-  const card = (t, live) => `
-    <div class="card">
-      <div class="top">
-        <span class="who">${t.group_name || "私聊"} · ${t.sender}</span>
-        <span class="badge">${t.deadline || "无时限"}</span>
-      </div>
-      <div class="what">${t.summary || ""}</div>
-      ${live ? `<div class="countdown" data-live>…</div>` : ""}
-    </div>`;
-
-  document.getElementById("list-dl").innerHTML =
-    withDl.length ? withDl.map(t => card(t, true)).join("") : `<div class="empty">暂无带截止时间的待办</div>`;
-  document.getElementById("list-no").innerHTML =
-    noDl.length ? noDl.map(t => card(t, false)).join("") : `<div class="empty">暂无无时限的重要事项</div>`;
-  tick();
+function showEmpty() {
+  setStats(0, 0, 0);
+  listDl.innerHTML = MessageCard.empty("还没有带截止时间的待办<br>群里有新任务时会出现在这里");
+  listNo.innerHTML = MessageCard.empty("还没有无时限的重要事项");
+  MessageCard.stopTimers();
 }
+
+function showError(reason) {
+  setStats("–", "–", "–");
+  listDl.innerHTML = MessageCard.error(reason);
+  listNo.innerHTML = "";
+  MessageCard.stopTimers();
+}
+
+function load() {
+  showLoading();
+  window.setTimeout(function () {
+    if (STATE === "loading") return;                 // 停在加载中，方便观察/截图
+    if (STATE === "error") {
+      showError("拿不到时间线数据。这是 mock 演示出来的错误状态，不是页面真的坏了 —— 点下面「重试」可以恢复。");
+      return;
+    }
+    if (STATE === "empty") { showEmpty(); return; }
+    showOk(MOCK_TIMELINE);
+  }, 600);
+}
+
+// 错误状态下的「重试」：回到正常流程
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest ? e.target.closest("[data-retry]") : null;
+  if (btn) { STATE = "ok"; load(); }
+});
+
 load();
-setInterval(tick, 1000);
 </script>
 </body>
 </html>

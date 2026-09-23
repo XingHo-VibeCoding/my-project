@@ -9,6 +9,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from pydantic import BaseModel
@@ -20,6 +21,8 @@ from app.parser import parse
 
 app = FastAPI(title="群消息智能提醒助手")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+# Day 8：可复用卡片组件 app/static/js/message-card.js 通过 /static 提供给页面
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
 class IncomingMessage(BaseModel):
@@ -74,5 +77,6 @@ def timeline():
 
 @app.get("/")
 def timeline_page(request: Request):
-    """F4 时间线页面（Jinja2 模板，数据由页面内 fetch /api/timeline 拉取）。"""
+    """主视图（Day 8）：页面数据为本地 mock，四种状态（加载/正常/空/错误）用
+    ?state= 切换；第 3 周再接回 /api/timeline 真实数据。"""
     return templates.TemplateResponse(request, "timeline.html")
