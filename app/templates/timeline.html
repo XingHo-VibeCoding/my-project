@@ -6,6 +6,10 @@
 <title>主视图 · 群消息智能提醒助手</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* 次要文字色：白底小字对比度 5.30:1，满足 WCAG AA 4.5:1（设计规则①的可复用约束） */
+    --text-muted: #6b6b70;
+  }
   body {
     font-family: "Microsoft YaHei", system-ui, sans-serif;
     background: #f5f6f8; color: #2c2c2e; padding: 20px;
@@ -13,16 +17,16 @@
   .wrap { max-width: 680px; margin: 0 auto; }
   header { text-align: center; margin-bottom: 24px; }
   header h1 { font-size: 20px; font-weight: 600; }
-  header p { font-size: 12px; color: #8a8a8e; margin-top: 4px; line-height: 1.6; }
+  header p { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.6; }
   .stats { display: flex; gap: 10px; justify-content: center; margin-bottom: 22px; }
   .stat {
     background: #fff; border-radius: 10px; padding: 10px 18px; text-align: center;
     box-shadow: 0 1px 3px rgba(0,0,0,.06); min-width: 90px;
   }
   .stat b { display: block; font-size: 22px; color: #d85a30; }
-  .stat span { font-size: 11px; color: #8a8a8e; }
+  .stat span { font-size: 11px; color: var(--text-muted); }
   h2 {
-    font-size: 13px; color: #6b6b70; margin: 18px 4px 10px;
+    font-size: 13px; color: #6b6b70; margin: 18px 0 10px;
     display: flex; align-items: center; gap: 8px;
   }
   h2::before { content: ""; width: 4px; height: 14px; background: #d85a30; border-radius: 2px; }
@@ -34,8 +38,8 @@
     border-left: 4px solid #d85a30;
   }
   .card .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-  .card .who { font-size: 12px; color: #8a8a8e; }
-  .card .what { font-size: 14px; line-height: 1.55; margin-top: 4px; }
+  .card .who { font-size: 12px; color: var(--text-muted); overflow-wrap: break-word; }
+  .card .what { font-size: 14px; line-height: 1.55; margin-top: 4px; overflow-wrap: break-word; }
   .badge {
     display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
     background: #faeeda; color: #854f0b; white-space: nowrap;
@@ -44,12 +48,13 @@
   .countdown { margin-top: 8px; font-size: 12px; color: #993c1d; font-weight: 600; }
   .countdown .num { font-variant-numeric: tabular-nums; }
   .origin { margin-top: 8px; }
-  .origin summary { font-size: 12px; color: #8a8a8e; cursor: pointer; outline: none; }
+  .origin summary { font-size: 12px; color: var(--text-muted); cursor: pointer; outline: none; }
   .origin p {
     font-size: 12px; color: #6b6b70; line-height: 1.65; margin-top: 6px;
     background: #f7f8fa; padding: 8px 10px; border-radius: 8px;
+    overflow-wrap: break-word;
   }
-  .meta { font-size: 11px; color: #b0b0b5; margin-top: 8px; }
+  .meta { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
 
   /* 加载中：骨架屏 */
   .sk-card {
@@ -66,7 +71,7 @@
 
   /* 空状态 */
   .empty {
-    text-align: center; color: #b0b0b5; font-size: 13px;
+    text-align: center; color: var(--text-muted); font-size: 13px;
     padding: 30px 0; background: #fff; border-radius: 12px; line-height: 1.8;
   }
 
@@ -76,15 +81,15 @@
     padding: 24px 18px; text-align: center;
   }
   .err-title { font-size: 14px; font-weight: 600; color: #a3341f; }
-  .err-msg { font-size: 12px; color: #8a8a8e; margin-top: 8px; line-height: 1.7; }
+  .err-msg { font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.7; }
   .error-box button {
     margin-top: 14px; border: none; background: #d85a30; color: #fff;
     font-size: 13px; padding: 8px 22px; border-radius: 999px; cursor: pointer;
   }
   .error-box button:hover { background: #bf4d27; }
 
-  footer { text-align: center; font-size: 11px; color: #b0b0b5; margin-top: 26px; line-height: 2; }
-  footer a { color: #8a8a8e; }
+  footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 26px; line-height: 2; overflow-wrap: break-word; }
+  footer a { color: var(--text-muted); }
 </style>
 </head>
 <body>
