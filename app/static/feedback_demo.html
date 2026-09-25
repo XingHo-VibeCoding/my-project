@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Day 11 · 交互反馈演示</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --ink: #1f2329;
+      --muted: #6b7280;
+      --brand: #2563eb;
+      --brand-ink: #ffffff;
+      --ok: #16a34a;
+      --ring: #2563eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.6;
+      padding: 32px 16px;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+    .block { margin-top: 22px; }
+    .block h2 { font-size: 14px; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--brand);
+      background: var(--brand);
+      color: var(--brand-ink);
+      font-size: 15px;
+      padding: 10px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform .08s ease, background .2s ease, border-color .2s ease;
+    }
+    .btn:active { transform: scale(.96); }
+    .btn.is-done {
+      background: var(--ok);
+      border-color: var(--ok);
+    }
+    /* 键盘焦点态：仅键盘聚焦时显示清晰描边（余力加练） */
+    .btn:focus-visible {
+      outline: 3px solid var(--ring);
+      outline-offset: 2px;
+    }
+
+    .panel {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height .35s ease;
+      border-left: 3px solid #e5e7eb;
+      margin-top: 12px;
+    }
+    .panel.open { max-height: 320px; }
+    .panel-inner { padding: 12px 14px; color: var(--muted); font-size: 14px; }
+
+    /* toast：与触发按钮分离的瞬时确认（动效+文字双信号） */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 32px;
+      transform: translate(-50%, 16px);
+      background: #111827;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s ease, transform .25s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    kbd {
+      background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 5px;
+      padding: 1px 6px; font-size: 12px; color: #3730a3;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>交互反馈演示</h1>
+      <p class="sub">Day 11 · 纯前端，不依赖后端数据</p>
+
+      <!-- 交互一：复制成功 -->
+      <div class="block">
+        <h2>① 复制成功（按钮回执 + toast 双反馈）</h2>
+        <button id="copyBtn" class="btn" type="button">复制邀请语</button>
+        <p class="hint">点一下（或聚焦后按 <kbd>Enter</kbd>/<kbd>Space</kbd>），按钮变「已复制 ✓」并弹出提示。</p>
+      </div>
+
+      <!-- 交互二：展开 / 收起 -->
+      <div class="block">
+        <h2>② 展开 / 收起（可见的内容状态变化）</h2>
+        <button id="toggleBtn" class="btn" type="button"
+                aria-expanded="false" aria-controls="panel">展开使用说明</button>
+        <div id="panel" class="panel">
+          <div class="panel-inner">
+            这是一段被收起的说明：反馈要让用户「明确知道生效了」——可见的状态变化、
+            即时的确认信号、触发物的自身回执，三者叠加最安心。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      var SAMPLE = "今晚 20:00 群消息提醒工具内测，记得来 ✨";
+      var copyBtn = document.getElementById("copyBtn");
+      var toast = document.getElementById("toast");
+      var toggleBtn = document.getElementById("toggleBtn");
+      var panel = document.getElementById("panel");
+      var toastTimer = null;
+      var revertTimer = null;
+
+      function showToast(msg) {
+        toast.textContent = msg;
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 1600);
+      }
+
+      function copyText(text) {
+        // 优先用异步剪贴板 API（https / localhost 安全上下文）
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          return navigator.clipboard.writeText(text);
+        }
+        // 降级：file:// 或非安全上下文用临时 textarea + execCommand
+        return new Promise(function (resolve, reject) {
+          var ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = false;
+          try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+          document.body.removeChild(ta);
+          ok ? resolve() : reject(new Error("execCommand failed"));
+        });
+      }
+
+      function doCopy() {
+        copyText(SAMPLE).then(function () {
+          copyBtn.textContent = "已复制 ✓";
+          copyBtn.classList.add("is-done");
+          showToast("已复制到剪贴板 ✓");
+        }).catch(function () {
+          copyBtn.textContent = "复制失败";
+          showToast("复制失败，请手动选择文字");
+        }).finally(function () {
+          // 连续点击安全：清掉上一次的回执计时，重新计时
+          clearTimeout(revertTimer);
+          revertTimer = setTimeout(function () {
+            copyBtn.textContent = "复制邀请语";
+            copyBtn.classList.remove("is-done");
+          }, 1600);
+        });
+      }
+
+      function doToggle() {
+        // 幂等：无论连点多少次都只切换一次状态
+        var open = panel.classList.toggle("open");
+        toggleBtn.setAttribute("aria-expanded", String(open));
+        toggleBtn.textContent = open ? "收起使用说明" : "展开使用说明";
+      }
+
+      copyBtn.addEventListener("click", doCopy);
+      toggleBtn.addEventListener("click", doToggle);
+    })();
+  </script>
+</body>
+</html>
