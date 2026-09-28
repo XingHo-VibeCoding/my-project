@@ -88,6 +88,35 @@
   }
   .error-box button:hover { background: #bf4d27; }
 
+  /* Day 12 筛选条（Skill: message-filter-validation 的验收对象）
+     移动端：flex-wrap 换行 + input min-width:0，保证不溢出屏幕 */
+  .filter {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    background: #fff; border-radius: 12px; padding: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 22px;
+  }
+  .filter input[type="search"] {
+    flex: 1 1 160px; min-width: 0;
+    border: 1px solid #d9dce1; border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; color: #2c2c2e;
+  }
+  .filter select {
+    flex: 0 1 auto; max-width: 100%;
+    border: 1px solid #d9dce1; border-radius: 8px;
+    padding: 8px 6px; font-size: 13px; background: #fff; color: #2c2c2e;
+  }
+  .filter button {
+    border: none; border-radius: 999px; padding: 8px 16px;
+    font-size: 13px; cursor: pointer;
+  }
+  #f-apply { background: #d85a30; color: #fff; }
+  #f-apply:hover { background: #bf4d27; }
+  #f-reset { background: #eef1f4; color: #6b6b70; }
+  #f-reset:hover { background: #e2e6ea; }
+  /* 可访问性：键盘 Tab 聚焦时给醒目焦点环 */
+  .filter :focus-visible { outline: 2px solid #d85a30; outline-offset: 2px; }
+  .f-count { flex-basis: 100%; font-size: 11px; color: var(--text-muted); margin: 0; }
+
   footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 26px; line-height: 2; overflow-wrap: break-word; }
   footer a { color: var(--text-muted); }
 </style>
@@ -104,6 +133,18 @@
     <div class="stat"><b id="n-dl">–</b><span>带截止</span></div>
     <div class="stat"><b id="n-no">–</b><span>无时限</span></div>
   </div>
+
+  <!-- Day 12 筛选区：关键词 + 群下拉 + 筛选 + 清空重置 -->
+  <section class="filter" aria-label="筛选消息">
+    <input id="f-key" type="search" placeholder="关键词，如：作业、直播、打包"
+           aria-label="筛选关键词，输入后点筛选或按回车">
+    <select id="f-group" aria-label="按群筛选">
+      <option value="">全部群</option>
+    </select>
+    <button type="button" id="f-apply">筛选</button>
+    <button type="button" id="f-reset">清空重置</button>
+    <p class="f-count" id="f-count" aria-live="polite"></p>
+  </section>
 
   <h2>⏰ 带截止时间（按截止先后）</h2>
   <div id="list-dl"></div>
@@ -252,6 +293,69 @@ document.addEventListener("click", function (e) {
   var btn = e.target.closest ? e.target.closest("[data-retry]") : null;
   if (btn) { STATE = "ok"; load(); }
 });
+
+/* ==========================================================================
+   Day 12 筛选交互（Skill: message-filter-validation 的验收对象）
+   三种必测场景：有结果 / 无结果（暂无匹配消息）/ 清空恢复。
+   filterItems 是纯函数：同样的输入永远同样的输出，方便 node 离线验算。
+   ========================================================================== */
+var filterKey = document.getElementById("f-key");
+var filterGroup = document.getElementById("f-group");
+var filterCount = document.getElementById("f-count");
+
+function filterItems(items, keyword, group) {
+  var kw = (keyword || "").trim().toLowerCase();
+  return items.filter(function (x) {
+    if (group && x.group_name !== group) return false;
+    if (!kw) return true;
+    var hay = [x.summary, x.content, x.sender, x.group_name].join("\n").toLowerCase();
+    return hay.indexOf(kw) !== -1;
+  });
+}
+
+// 下拉选项从 mock 数据里现算，以后换真实数据源也不用改这里
+(function fillGroupOptions() {
+  var seen = [];
+  MOCK_TIMELINE.forEach(function (x) {
+    if (x.group_name && seen.indexOf(x.group_name) === -1) seen.push(x.group_name);
+  });
+  seen.forEach(function (g) {
+    var o = document.createElement("option");
+    o.value = g; o.textContent = g;
+    filterGroup.appendChild(o);
+  });
+})();
+
+function applyFilter() {
+  STATE = "ok";                       // 从任意演示状态筛选，都回到真实数据
+  var hits = filterItems(MOCK_TIMELINE, filterKey.value, filterGroup.value);
+  filterCount.textContent = "筛选：命中 " + hits.length + " / " + MOCK_TIMELINE.length + " 条";
+  if (hits.length) {
+    showOk(hits);
+  } else {
+    // 场景二：无结果 -> 统一空状态「暂无匹配消息」
+    setStats(0, 0, 0);
+    listDl.innerHTML = MessageCard.empty("暂无匹配消息<br>换个关键词，或点「清空重置」恢复全部");
+    listNo.innerHTML = "";
+    MessageCard.stopTimers();
+  }
+}
+
+function resetFilter() {
+  // 场景三：清空重置 -> 条件归零，重新走一遍正常加载流程
+  filterKey.value = "";
+  filterGroup.value = "";
+  filterCount.textContent = "";
+  STATE = "ok";
+  load();
+}
+
+document.getElementById("f-apply").addEventListener("click", applyFilter);
+document.getElementById("f-reset").addEventListener("click", resetFilter);
+filterKey.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") applyFilter();          // 输入框里按回车 = 点筛选
+});
+filterGroup.addEventListener("change", applyFilter);  // 切群即时生效
 
 load();
 </script>
