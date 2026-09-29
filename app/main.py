@@ -4,11 +4,12 @@
   F1 接收解析  -> app/parser.py + POST /api/messages
   F2 重要性判断 -> app/judge.py（MVP 为规则引擎版，DeepSeek 升级位留好）
   F3 精选推送  -> app/notify.py（MVP 留桩，不接真机）
-  F4 待办时间线 -> 本文件 GET / （Jinja2 模板渲染）
+  F4 待办时间线 -> GET /timeline / /inbox / /settings（Day 13 三视图，/ 跳 /timeline）
 """
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
@@ -76,7 +77,26 @@ def timeline():
 
 
 @app.get("/")
+def home():
+    """入口：跳到时间线（Day 13 起主视图有独立地址 /timeline）。"""
+    return RedirectResponse(url="/timeline")
+
+
+@app.get("/timeline")
 def timeline_page(request: Request):
-    """主视图（Day 8）：页面数据为本地 mock，四种状态（加载/正常/空/错误）用
-    ?state= 切换；第 3 周再接回 /api/timeline 真实数据。"""
-    return templates.TemplateResponse(request, "timeline.html")
+    """时间线视图（Day 8 建页，Day 13 挂独立路由）：AI 判定后的重要事项，
+    四种状态（加载/正常/空/错误）用 ?state= 切换；第 3 周接 /api/timeline。"""
+    return templates.TemplateResponse(request, "timeline.html", {"nav": "timeline"})
+
+
+@app.get("/inbox")
+def inbox_page(request: Request):
+    """收件箱视图（Day 13 新增）：判断前的原始群消息，四状态同 ?state= 约定；
+    第 3 周接 /api/messages。"""
+    return templates.TemplateResponse(request, "inbox.html", {"nav": "inbox"})
+
+
+@app.get("/settings")
+def settings_page(request: Request):
+    """设置视图（Day 13 新增）：提醒通道/判断规则占位骨架，第 3 周接真实配置。"""
+    return templates.TemplateResponse(request, "settings.html", {"nav": "settings"})

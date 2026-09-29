@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}收件箱 · 群消息智能提醒助手{% endblock %}
+
+{% block page_css %}
+  .inbox-meta {
+    display: flex; gap: 10px; justify-content: center; margin-bottom: 22px;
+  }
+  .inbox-meta .stat {
+    background: #fff; border-radius: 10px; padding: 10px 18px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); min-width: 90px;
+  }
+  .inbox-meta .stat b { display: block; font-size: 22px; color: #d85a30; }
+  .inbox-meta .stat span { font-size: 11px; color: var(--text-muted); }
+
+  /* 收件箱条目：以「原文」为主体（时间线以「摘要」为主体） */
+  .msg {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    border-left: 4px solid #d9dce1;
+  }
+  .msg.important { border-left-color: #d85a30; }
+  .msg .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .msg .who { font-size: 12px; color: var(--text-muted); overflow-wrap: break-word; }
+  .msg time { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .msg .raw { font-size: 14px; line-height: 1.6; margin-top: 6px; overflow-wrap: break-word; }
+  .msg .meta { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+  /* 加载中：骨架屏（与时间线同一套动画） */
+  .sk-card {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .sk-line {
+    height: 12px; border-radius: 6px; margin: 9px 0;
+    background: linear-gradient(90deg, #eceef1 25%, #f7f8fa 37%, #eceef1 63%);
+    background-size: 400% 100%; animation: sk 1.2s ease infinite;
+  }
+  .sk-line.w60 { width: 60%; } .sk-line.w90 { width: 90%; } .sk-line.w40 { width: 40%; }
+  @keyframes sk { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+  /* 空状态 */
+  .empty {
+    text-align: center; color: var(--text-muted); font-size: 13px;
+    padding: 30px 0; background: #fff; border-radius: 12px; line-height: 1.8;
+  }
+
+  /* 错误状态 */
+  .error-box {
+    background: #fff; border: 1px solid #f0cdc5; border-radius: 12px;
+    padding: 24px 18px; text-align: center;
+  }
+  .err-title { font-size: 14px; font-weight: 600; color: #a3341f; }
+  .err-msg { font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.7; }
+  .error-box button {
+    margin-top: 14px; border: none; background: #d85a30; color: #fff;
+    font-size: 13px; padding: 8px 22px; border-radius: 999px; cursor: pointer;
+  }
+  .error-box button:hover { background: #bf4d27; }
+  .error-box button:focus-visible { outline: 2px solid #d85a30; outline-offset: 2px; }
+{% endblock %}
+
+{% block page_title %}📥 收件箱{% endblock %}
+{% block page_sub %}判断前的原始群消息 · 每条消息进来后先落在这里，再交给 F2 判断{% endblock %}
+
+{% block content %}
+  <div class="inbox-meta">
+    <div class="stat"><b id="n-total">–</b><span>收到的消息</span></div>
+    <div class="stat"><b id="n-imp">–</b><span>判为重要</span></div>
+  </div>
+
+  <div id="inbox-list" aria-live="polite"></div>
+{% endblock %}
+
+{% block footer %}
+  收件箱 http://localhost:8000/inbox · 数据来源：页面内 MOCK_INBOX（与时间线同一批 mock 消息）<br>
+  第 3 周接真实接口时，把它换成 fetch("/api/messages") 即可，字段同名、组件不动<br>
+  状态预览：<a href="/inbox?state=loading">加载中</a> · <a href="/inbox?state=empty">空</a> ·
+  <a href="/inbox?state=error">错误</a> · <a href="/inbox">正常</a>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ==========================================================================
+   mock 数据 —— 与时间线页 MOCK_TIMELINE 是同一批消息（今日不做新数据）：
+   时间线展示「判定后的结果」，收件箱展示「判定前的原文」。
+   字段与 /api/messages 的真实返回一致（id / group_name / sender / content /
+   received_at / importance / summary / deadline），第 3 周换成一次 fetch 即可。
+   ========================================================================== */
+var MOCK_INBOX = [
+  {
+    id: 1, importance: "important",
+    group_name: "学习打卡群", sender: "助教·小林",
+    content: "@所有人 今晚 21:00 直播答疑，讲 PRD 怎么落到 MVP，记得来。",
+    summary: "助教·小林：今晚 21:00 直播答疑，讲 PRD 怎么落到 MVP",
+    deadline: "今晚 21:00", received_at: "2026-09-23 18:40"
+  },
+  {
+    id: 2, importance: "important",
+    group_name: "学习打卡群", sender: "班长·小周",
+    content: "@所有人 周五 22:00 前把本周作业提交到班级仓库，仓库链接在群公告里。",
+    summary: "班长·小周：周五 22:00 前把本周作业提交到班级仓库",
+    deadline: "周五 22:00", received_at: "2026-09-23 19:02"
+  },
+  {
+    id: 3, importance: "important",
+    group_name: "工作对接群", sender: "产品·李工",
+    content: "接口字段改成 snake_case 了，明天 10:00 前对一下联调时间。",
+    summary: "产品·李工：接口字段改成 snake_case，明天 10:00 前对联调时间",
+    deadline: "明天 10:00", received_at: "2026-09-23 17:15"
+  },
+  {
+    id: 4, importance: "important",
+    group_name: "学习打卡群", sender: "助教·小林",
+    content: "注意：从下周起打卡时间改到 23:00 之前，别记错。",
+    summary: "助教·小林：从下周起打卡时间改到 23:00 之前",
+    deadline: null, received_at: "2026-09-23 16:20"
+  },
+  {
+    id: 5, importance: "important",
+    group_name: "工作对接群", sender: "测试·王姐",
+    content: "@我 刚发的测试包有个坑，先别装，等我重新打包。",
+    summary: "测试·王姐：刚发的测试包先别装，等我重新打包",
+    deadline: null, received_at: "2026-09-23 15:48"
+  },
+  {
+    id: 6, importance: "important",
+    group_name: "家人群", sender: "妈妈",
+    content: "周末回来吃饭，记得回个话。",
+    summary: "妈妈：周末回来吃饭，记得回个话",
+    deadline: null, received_at: "2026-09-23 12:30"
+  }
+];
+
+/* ---------- 渲染 ---------- */
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+var listBox = document.getElementById("inbox-list");
+
+function setStats(total, imp) {
+  document.getElementById("n-total").textContent = total;
+  document.getElementById("n-imp").textContent = imp;
+}
+
+function renderMsg(item) {
+  var imp = item.importance === "important";
+  return "<article class=\"msg" + (imp ? " important" : "") + "\">" +
+    "<div class=\"top\">" +
+      "<span class=\"who\">" + esc((item.group_name || "私聊") + " · " + (item.sender || "未知")) + "</span>" +
+      "<time>" + esc(item.received_at || "—") + "</time>" +
+    "</div>" +
+    "<p class=\"raw\">" + esc(item.content || "（无内容）") + "</p>" +
+    "<p class=\"meta\">判定：" + (imp ? "重要（F2 规则引擎）" : "闲聊") +
+      (imp ? " · <a href=\"/timeline\">去时间线看 →</a>" : "") + "</p>" +
+    "</article>";
+}
+
+function skeleton(n) {
+  var one = "<div class=\"sk-card\">" +
+    "<div class=\"sk-line w60\"></div>" +
+    "<div class=\"sk-line w90\"></div>" +
+    "<div class=\"sk-line w40\"></div>" +
+    "</div>";
+  var out = "";
+  for (var i = 0; i < (n || 1); i++) out += one;
+  return out;
+}
+
+function emptyBox(text) {
+  return "<div class=\"empty\">" + esc(text || "暂无内容") + "</div>";
+}
+
+function errorBox(reason) {
+  return "<div class=\"error-box\">" +
+    "<p class=\"err-title\">⚠️ 收件箱加载失败</p>" +
+    "<p class=\"err-msg\">" + esc(reason || "未知错误") + "</p>" +
+    "<button type=\"button\" data-retry>重试</button>" +
+    "</div>";
+}
+
+/* ==========================================================================
+   四种状态（与时间线同一套 ?state= 约定）：
+     /inbox?state=loading   停在骨架屏
+     /inbox?state=empty      一条消息都没有
+     /inbox?state=error      拿不到数据（可重试）
+     /inbox                  正常：先 0.6s 骨架屏，再渲染
+   ========================================================================== */
+var STATE = new URLSearchParams(location.search).get("state") || "ok";
+
+function showLoading() {
+  setStats("–", "–");
+  listBox.innerHTML = skeleton(3);
+}
+
+function showOk(items) {
+  setStats(items.length, items.filter(function (x) { return x.importance === "important"; }).length);
+  listBox.innerHTML = items.length
+    ? items.map(renderMsg).join("")
+    : emptyBox("收件箱是空的<br>有新消息转发进来时会出现在这里");
+}
+
+function showEmpty() {
+  setStats(0, 0);
+  listBox.innerHTML = emptyBox("收件箱是空的<br>有新消息转发进来时会出现在这里");
+}
+
+function showError(reason) {
+  setStats("–", "–");
+  listBox.innerHTML = errorBox(reason);
+}
+
+function load() {
+  showLoading();
+  window.setTimeout(function () {
+    if (STATE === "loading") return;
+    if (STATE === "error") {
+      showError("拿不到收件箱数据。这是 mock 演示出来的错误状态，不是页面真的坏了 —— 点下面「重试」可以恢复。");
+      return;
+    }
+    if (STATE === "empty") { showEmpty(); return; }
+    showOk(MOCK_INBOX);
+  }, 600);
+}
+
+// 错误状态下的「重试」：回到正常流程
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest ? e.target.closest("[data-retry]") : null;
+  if (btn) { STATE = "ok"; load(); }
+});
+
+load();
+</script>
+{% endblock %}

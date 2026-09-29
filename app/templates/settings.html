@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}设置 · 群消息智能提醒助手{% endblock %}
+
+{% block page_css %}
+  .set-section {
+    background: #fff; border-radius: 12px; padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px;
+  }
+  .set-section h2 {
+    font-size: 13px; color: #6b6b70; margin: 0 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .set-section h2::before { content: ""; width: 4px; height: 14px; background: #d85a30; border-radius: 2px; }
+  .set-section p.hint {
+    font-size: 12px; color: var(--text-muted); line-height: 1.7; margin: 0 0 10px;
+  }
+  .set-section label { display: block; font-size: 12px; color: #2c2c2e; margin-bottom: 6px; }
+  .set-section input {
+    width: 100%; border: 1px solid #d9dce1; border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; color: #2c2c2e; background: #f7f8fa;
+  }
+  .set-section input:disabled { cursor: not-allowed; }
+  .set-section input:focus-visible { outline: 2px solid #d85a30; outline-offset: 2px; }
+  .todo-note {
+    font-size: 11px; color: var(--text-muted); background: #f7f8fa;
+    border-radius: 8px; padding: 8px 10px; line-height: 1.7;
+  }
+{% endblock %}
+
+{% block page_title %}⚙️ 设置{% endblock %}
+{% block page_sub %}提醒通道与判断规则 · 今天只搭骨架，第 3 周接真实配置（今日不做新数据）{% endblock %}
+
+{% block content %}
+  <section class="set-section" aria-labelledby="s-notify">
+    <h2 id="s-notify">🔔 提醒通道（F3）</h2>
+    <p class="hint">
+      手机收到重点消息后由 ntfy 推送提醒（接收机是安卓，Bark 仅 iOS 已出局）。
+      这里将来填你的私有主题名。
+    </p>
+    <label for="ntfy-topic">ntfy 主题名</label>
+    <input id="ntfy-topic" type="text" placeholder="第 3 周接入，如：my-secret-topic-123" disabled>
+  </section>
+
+  <section class="set-section" aria-labelledby="s-rules">
+    <h2 id="s-rules">🧠 判断规则（F2）</h2>
+    <p class="hint">
+      现在由规则引擎判定（MVP 版）：命中「@我 / @所有人、截止时间短语、
+      作业·提交·直播等关键词」判为重要。DeepSeek 升级位已留好。
+    </p>
+    <div class="todo-note">
+      待办：规则的可视化编辑（增删关键词、调整判定阈值）排在第 3 周，
+      今天不实现 —— 设置页先占住位置，保证三个视图结构完整。
+    </div>
+  </section>
+
+  <section class="set-section" aria-labelledby="s-forward">
+    <h2 id="s-forward">📲 消息来源（F1）</h2>
+    <p class="hint">
+      SmsForwarder 把安卓通知栏的群消息转发到本程序（POST /api/messages）。
+      当前工作方式见 RUNBOOK.md。
+    </p>
+    <div class="todo-note">接收地址：http://localhost:8000/api/messages（本机部署，内网穿透第 3 周定）</div>
+  </section>
+{% endblock %}
+
+{% block footer %}
+  设置 http://localhost:8000/settings · 当前为占位骨架，无任何可提交数据<br>
+  接入顺序：Day 23 引入 .env 数据库配置 → ntfy 主题名入库 → 规则可视化
+{% endblock %}

@@ -1,23 +1,8 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>主视图 · 群消息智能提醒助手</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  :root {
-    /* 次要文字色：白底小字对比度 5.30:1，满足 WCAG AA 4.5:1（设计规则①的可复用约束） */
-    --text-muted: #6b6b70;
-  }
-  body {
-    font-family: "Microsoft YaHei", system-ui, sans-serif;
-    background: #f5f6f8; color: #2c2c2e; padding: 20px;
-  }
-  .wrap { max-width: 680px; margin: 0 auto; }
-  header { text-align: center; margin-bottom: 24px; }
-  header h1 { font-size: 20px; font-weight: 600; }
-  header p { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.6; }
+{% extends "base.html" %}
+
+{% block title %}时间线 · 群消息智能提醒助手{% endblock %}
+
+{% block page_css %}
   .stats { display: flex; gap: 10px; justify-content: center; margin-bottom: 22px; }
   .stat {
     background: #fff; border-radius: 10px; padding: 10px 18px; text-align: center;
@@ -116,18 +101,12 @@
   /* 可访问性：键盘 Tab 聚焦时给醒目焦点环 */
   .filter :focus-visible { outline: 2px solid #d85a30; outline-offset: 2px; }
   .f-count { flex-basis: 100%; font-size: 11px; color: var(--text-muted); margin: 0; }
+{% endblock %}
 
-  footer { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 26px; line-height: 2; overflow-wrap: break-word; }
-  footer a { color: var(--text-muted); }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header>
-    <h1>📌 群消息智能提醒助手</h1>
-    <p>主视图（mock 数据版）· Day 8 · 页面数据全部是本地假数据，今天不接真实接口</p>
-  </header>
+{% block page_title %}📌 群消息智能提醒助手{% endblock %}
+{% block page_sub %}时间线（mock 数据版）· AI 判定后的重要事项 · 第 3 周接真实接口{% endblock %}
 
+{% block content %}
   <div class="stats">
     <div class="stat"><b id="n-all">–</b><span>重要事项</span></div>
     <div class="stat"><b id="n-dl">–</b><span>带截止</span></div>
@@ -151,15 +130,16 @@
 
   <h2>📭 无时限</h2>
   <div id="list-no"></div>
+{% endblock %}
 
-  <footer>
-    主视图 http://localhost:8000/ · 数据来源：页面内 MOCK_TIMELINE<br>
-    第 3 周接真实接口时，把它换成 fetch("/api/timeline") 即可，字段同名、组件不动<br>
-    状态预览：<a href="/?state=loading">加载中</a> · <a href="/?state=empty">空</a> ·
-    <a href="/?state=error">错误</a> · <a href="/">正常</a>
-  </footer>
-</div>
+{% block footer %}
+  时间线 http://localhost:8000/timeline · 数据来源：页面内 MOCK_TIMELINE<br>
+  第 3 周接真实接口时，把它换成 fetch("/api/timeline") 即可，字段同名、组件不动<br>
+  状态预览：<a href="/timeline?state=loading">加载中</a> · <a href="/timeline?state=empty">空</a> ·
+  <a href="/timeline?state=error">错误</a> · <a href="/timeline">正常</a>
+{% endblock %}
 
+{% block scripts %}
 <!-- 可复用卡片组件：卡片的 HTML 结构与截止时间换算都在这个文件里 -->
 <script src="/static/js/message-card.js"></script>
 
@@ -219,10 +199,10 @@ var MOCK_TIMELINE = [
 /* ==========================================================================
    四种页面状态：加载中 / 正常 / 空 / 错误
    用地址栏参数切换，方便逐个看效果（平时看不到的状态，今天先把它做出来）：
-     /?state=loading   加载中（停在骨架屏，不往下走）
-     /?state=empty     空（有数据接口但一条都没有）
-     /?state=error     错误（拿不到数据）
-     /                 正常（先 0.6 秒骨架屏，再渲染 mock 数据）
+     /timeline?state=loading   加载中（停在骨架屏，不往下走）
+     /timeline?state=empty     空（有数据接口但一条都没有）
+     /timeline?state=error     错误（拿不到数据）
+     /timeline                  正常（先 0.6 秒骨架屏，再渲染 mock 数据）
    ========================================================================== */
 var STATE = new URLSearchParams(location.search).get("state") || "ok";
 var listDl = document.getElementById("list-dl");
@@ -359,5 +339,4 @@ filterGroup.addEventListener("change", applyFilter);  // 切群即时生效
 
 load();
 </script>
-</body>
-</html>
+{% endblock %}
