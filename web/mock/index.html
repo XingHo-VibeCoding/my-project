@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  公网 mock 版（Day 15 部署到 CloudBase 静态网站托管）
+  --------------------------------------------------------------------------
+  这是一份「自包含快照」：样式、卡片组件、假数据、交互全部内联在一个文件里，
+  不依赖任何外部资源，也不向任何接口发请求（跨域配置是 Day 20 的事）。
+
+  内容来源（改动时请回原文件改，再重新生成本页）：
+    - 样式     <- app/templates/base.html + app/templates/timeline.html
+    - 卡片组件 <- app/static/js/message-card.js（Day 8）
+    - 假数据   <- app/templates/timeline.html 的 MOCK_TIMELINE
+    - 筛选交互 <- app/templates/timeline.html（Day 12）
+
+  Day 20 上传真实数据版时：把 MOCK_TIMELINE 换成 fetch("/api/timeline")，
+  字段同名、组件不动。
+  ==========================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>时间线（公网 mock 版）· 群消息智能提醒助手</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* 次要文字色：白底小字对比度 5.30:1，满足 WCAG AA 4.5:1（Day 9 设计规则） */
+    --text-muted: #6b6b70;
+    --accent: #d85a30;
+  }
+  body {
+    font-family: "Microsoft YaHei", system-ui, sans-serif;
+    background: #f5f6f8; color: #2c2c2e; padding: 20px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+
+  nav.topnav {
+    background: #fff; border-radius: 12px; padding: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px;
+  }
+  nav.topnav a {
+    flex: 1 1 100px; text-align: center; text-decoration: none;
+    color: var(--text-muted); font-size: 14px;
+    padding: 8px 10px; border-radius: 8px; white-space: nowrap;
+  }
+  nav.topnav a[aria-current="page"] { background: #faeeda; color: #854f0b; font-weight: 600; }
+  nav.topnav .view-hint {
+    flex-basis: 100%; margin: 4px 2px 0; padding: 6px 2px 2px;
+    font-size: 12.5px; line-height: 1.7; text-align: center;
+    color: var(--text-muted); border-top: 1px dashed #e3e5e9;
+  }
+  nav.topnav .view-hint b { color: #2c2c2e; font-weight: 600; }
+
+  header.page { text-align: center; margin-bottom: 24px; }
+  header.page h1 { font-size: 20px; font-weight: 600; }
+  header.page p { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.6; }
+
+  footer.page {
+    text-align: center; font-size: 11px; color: var(--text-muted);
+    margin-top: 26px; line-height: 2; overflow-wrap: break-word;
+  }
+
+  .stats { display: flex; gap: 10px; justify-content: center; margin-bottom: 22px; }
+  .stat {
+    background: #fff; border-radius: 10px; padding: 10px 18px; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); min-width: 90px;
+  }
+  .stat b { display: block; font-size: 22px; color: #d85a30; }
+  .stat span { font-size: 11px; color: var(--text-muted); }
+  h2 {
+    font-size: 13px; color: #6b6b70; margin: 18px 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2::before { content: ""; width: 4px; height: 14px; background: #d85a30; border-radius: 2px; }
+
+  .card {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    border-left: 4px solid #d85a30;
+  }
+  .card .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .card .who { font-size: 12px; color: var(--text-muted); overflow-wrap: break-word; }
+  .card .what { font-size: 14px; line-height: 1.55; margin-top: 4px; overflow-wrap: break-word; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: #faeeda; color: #854f0b; white-space: nowrap;
+  }
+  .badge.chat { background: #eef1f4; color: #6b6b70; }
+  .countdown { margin-top: 8px; font-size: 12px; color: #993c1d; font-weight: 600; }
+  .countdown .num { font-variant-numeric: tabular-nums; }
+  .origin { margin-top: 8px; }
+  .origin summary { font-size: 12px; color: var(--text-muted); cursor: pointer; outline: none; }
+  .origin p {
+    font-size: 12px; color: #6b6b70; line-height: 1.65; margin-top: 6px;
+    background: #f7f8fa; padding: 8px 10px; border-radius: 8px;
+    overflow-wrap: break-word;
+  }
+  .meta { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+  .sk-card {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .sk-line {
+    height: 12px; border-radius: 6px; margin: 9px 0;
+    background: linear-gradient(90deg, #eceef1 25%, #f7f8fa 37%, #eceef1 63%);
+    background-size: 400% 100%; animation: sk 1.2s ease infinite;
+  }
+  .sk-line.w60 { width: 60%; } .sk-line.w90 { width: 90%; } .sk-line.w40 { width: 40%; }
+  @keyframes sk { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+  .empty {
+    text-align: center; color: var(--text-muted); font-size: 13px;
+    padding: 30px 0; background: #fff; border-radius: 12px; line-height: 1.8;
+  }
+
+  .error-box {
+    background: #fff; border: 1px solid #f0cdc5; border-radius: 12px;
+    padding: 24px 18px; text-align: center;
+  }
+  .err-title { font-size: 14px; font-weight: 600; color: #a3341f; }
+  .err-msg { font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.7; }
+  .error-box button {
+    margin-top: 14px; border: none; background: #d85a30; color: #fff;
+    font-size: 13px; padding: 8px 22px; border-radius: 999px; cursor: pointer;
+  }
+
+  .filter {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    background: #fff; border-radius: 12px; padding: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 22px;
+  }
+  .filter input[type="search"] {
+    flex: 1 1 160px; min-width: 0;
+    border: 1px solid #d9dce1; border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; color: #2c2c2e;
+  }
+  .filter select {
+    flex: 0 1 auto; max-width: 100%;
+    border: 1px solid #d9dce1; border-radius: 8px;
+    padding: 8px 6px; font-size: 13px; background: #fff; color: #2c2c2e;
+  }
+  .filter button {
+    border: none; border-radius: 999px; padding: 8px 16px;
+    font-size: 13px; cursor: pointer;
+  }
+  #f-apply { background: #d85a30; color: #fff; }
+  #f-reset { background: #eef1f4; color: #6b6b70; }
+  .filter :focus-visible { outline: 2px solid #d85a30; outline-offset: 2px; }
+  .f-count { flex-basis: 100%; font-size: 11px; color: var(--text-muted); margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- 公网 mock 版只有时间线有数据，其余两个视图等 Day 20 真实数据版，
+       所以这里不给出会 404 的链接，改成纯展示（Day 14 用户测试教训：说明要写在显眼处） -->
+  <nav class="topnav" aria-label="页面导航">
+    <a title="公网 mock 版暂未开放">📥 收件箱</a>
+    <a aria-current="page">⏰ 时间线</a>
+    <a title="公网 mock 版暂未开放">⚙️ 设置</a>
+    <p class="view-hint">📥 收件箱＝<b>群消息原文</b> · ⏰ 时间线＝<b>AI 挑出的重要事项</b> · ⚙️ 设置＝提醒配置</p>
+  </nav>
+
+  <header class="page">
+    <h1>📌 群消息智能提醒助手</h1>
+    <p>公网 mock 版 · 时间线（假数据，页面内写死，不请求接口）· Day 20 换真实数据</p>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><b id="n-all">–</b><span>重要事项</span></div>
+    <div class="stat"><b id="n-dl">–</b><span>带截止</span></div>
+    <div class="stat"><b id="n-no">–</b><span>无时限</span></div>
+  </div>
+
+  <section class="filter" aria-label="筛选消息">
+    <input id="f-key" type="search" placeholder="关键词，如：作业、直播、打包"
+           aria-label="筛选关键词，输入后点筛选或按回车">
+    <select id="f-group" aria-label="按群筛选">
+      <option value="">全部群</option>
+    </select>
+    <button type="button" id="f-apply">筛选</button>
+    <button type="button" id="f-reset">清空重置</button>
+    <p class="f-count" id="f-count" aria-live="polite"></p>
+  </section>
+
+  <h2>⏰ 带截止时间（按截止先后）</h2>
+  <div id="list-dl"></div>
+
+  <h2>📭 无时限</h2>
+  <div id="list-no"></div>
+
+  <footer class="page">
+    公网 mock 版 · 数据写死在页面里，不发任何请求<br>
+    云端接口 <code>/api/health</code> 已在公网跑通（Day 15）· 真实数据版 Day 20 上传<br>
+    状态预览：<a href="?state=loading">加载中</a> · <a href="?state=empty">空</a> ·
+    <a href="?state=error">错误</a> · <a href="?state=ok">正常</a>
+  </footer>
+</div>
+
+<script>
+/* 卡片组件（来源：app/static/js/message-card.js，Day 8） */
+var MessageCard = (function () {
+  var WEEK_MAP = { "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日": 0, "天": 0 };
+
+  function deadlineTarget(text) {
+    if (!text) return null;
+    var now = new Date();
+    var hm = text.match(/(\d{1,2})\s*[:：]\s*(\d{2})/);
+    var d = new Date(now);
+    var offset = null;
+
+    if (/今[天晚]/.test(text)) {
+      offset = 0;
+    } else if (/明[天晚]/.test(text)) {
+      offset = 1;
+    } else {
+      var dowMon = now.getDay() === 0 ? 7 : now.getDay();
+      var nextMonIn = ((8 - dowMon) % 7) || 7;
+      var w = text.match(/([本下]?)周([一二三四五六日天])/);
+      if (w) {
+        var x = WEEK_MAP[w[2]] === 0 ? 7 : WEEK_MAP[w[2]];
+        if (w[1] === "下") offset = nextMonIn + (x - 1);
+        else if (x >= dowMon) offset = x - dowMon;
+        else offset = nextMonIn + (x - 1);
+      } else if (/下周/.test(text)) {
+        offset = nextMonIn;
+      }
+    }
+
+    if (offset === null && !hm) return null;
+    if (offset !== null) d.setDate(d.getDate() + offset);
+    if (hm) d.setHours(Number(hm[1]), Number(hm[2]), 0, 0);
+    else d.setHours(23, 59, 0, 0);
+    if (offset === null && d.getTime() < now.getTime()) d.setDate(d.getDate() + 1);
+    return d;
+  }
+
+  function countdownText(ms) {
+    if (ms <= 0) return "已截止";
+    var t = Math.floor(ms / 1000);
+    var day = Math.floor(t / 86400);
+    var hour = Math.floor(t % 86400 / 3600);
+    var min = Math.floor(t % 3600 / 60);
+    var sec = t % 60;
+    var parts = [];
+    if (day) parts.push('<span class="num">' + day + "</span> 天");
+    if (day || hour) parts.push('<span class="num">' + hour + "</span> 小时");
+    parts.push('<span class="num">' + min + "</span> 分");
+    if (!day) parts.push('<span class="num">' + sec + "</span> 秒");
+    return "剩 " + parts.join(" ");
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function render(item) {
+    item = item || {};
+    var target = deadlineTarget(item.deadline);
+    var badge = item.deadline
+      ? '<span class="badge">⏰ ' + esc(item.deadline) + "</span>"
+      : '<span class="badge chat">无时限</span>';
+    var countdown = target
+      ? '<div class="countdown" data-deadline="' + target.getTime() + '">…</div>'
+      : "";
+    var origin = item.content
+      ? '<details class="origin"><summary>看原文</summary><p>' + esc(item.content) + "</p></details>"
+      : "";
+    var meta = "收到 " + esc(item.received_at || "—") +
+      " · 判定 " + esc(item.importance || "—") + "（F2 规则引擎）";
+
+    return '<article class="card">' +
+      '<div class="top">' +
+        '<span class="who">' + esc((item.group_name || "私聊") + " · " + (item.sender || "未知")) + "</span>" +
+        badge +
+      "</div>" +
+      '<p class="what">' + esc(item.summary || item.content || "（无内容）") + "</p>" +
+      origin + countdown +
+      '<p class="meta">' + meta + "</p>" +
+      "</article>";
+  }
+
+  function skeleton(n) {
+    var one = '<div class="sk-card">' +
+      '<div class="sk-line w60"></div>' +
+      '<div class="sk-line w90"></div>' +
+      '<div class="sk-line w40"></div>' +
+      "</div>";
+    var out = "";
+    for (var i = 0; i < (n || 1); i++) out += one;
+    return out;
+  }
+
+  function empty(text) {
+    return '<div class="empty">' + esc(text || "暂无内容") + "</div>";
+  }
+
+  function error(reason) {
+    return '<div class="error-box">' +
+      '<p class="err-title">⚠️ 时间线加载失败</p>' +
+      '<p class="err-msg">' + esc(reason || "未知错误") + "</p>" +
+      '<button type="button" data-retry>重试</button>' +
+      "</div>";
+  }
+
+  function tick() {
+    var list = document.querySelectorAll(".countdown[data-deadline]");
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i];
+      el.innerHTML = countdownText(Number(el.getAttribute("data-deadline")) - Date.now());
+    }
+  }
+
+  var timer = null;
+  function startTimers() {
+    tick();
+    if (timer === null) timer = window.setInterval(tick, 1000);
+  }
+  function stopTimers() {
+    if (timer !== null) { window.clearInterval(timer); timer = null; }
+  }
+
+  return {
+    render: render, skeleton: skeleton, empty: empty, error: error,
+    startTimers: startTimers, stopTimers: stopTimers, deadlineTarget: deadlineTarget
+  };
+})();
+
+/* 假数据：字段与 /api/timeline 的真实返回一致，Day 20 换成一次 fetch 即可 */
+var MOCK_TIMELINE = [
+  { id: 1, importance: "important", group_name: "学习打卡群", sender: "助教·小林",
+    content: "@所有人 今晚 21:00 直播答疑，讲 PRD 怎么落到 MVP，记得来。",
+    summary: "助教·小林：今晚 21:00 直播答疑，讲 PRD 怎么落到 MVP",
+    deadline: "今晚 21:00", received_at: "2026-09-23 18:40" },
+  { id: 2, importance: "important", group_name: "学习打卡群", sender: "班长·小周",
+    content: "@所有人 周五 22:00 前把本周作业提交到班级仓库，仓库链接在群公告里。",
+    summary: "班长·小周：周五 22:00 前把本周作业提交到班级仓库",
+    deadline: "周五 22:00", received_at: "2026-09-23 19:02" },
+  { id: 3, importance: "important", group_name: "工作对接群", sender: "产品·李工",
+    content: "接口字段改成 snake_case 了，明天 10:00 前对一下联调时间。",
+    summary: "产品·李工：接口字段改成 snake_case，明天 10:00 前对联调时间",
+    deadline: "明天 10:00", received_at: "2026-09-23 17:15" },
+  { id: 4, importance: "important", group_name: "学习打卡群", sender: "助教·小林",
+    content: "注意：从下周起打卡时间改到 23:00 之前，别记错。",
+    summary: "助教·小林：从下周起打卡时间改到 23:00 之前",
+    deadline: null, received_at: "2026-09-23 16:20" },
+  { id: 5, importance: "important", group_name: "工作对接群", sender: "测试·王姐",
+    content: "@我 刚发的测试包有个坑，先别装，等我重新打包。",
+    summary: "测试·王姐：刚发的测试包先别装，等我重新打包",
+    deadline: null, received_at: "2026-09-23 15:48" },
+  { id: 6, importance: "important", group_name: "家人群", sender: "妈妈",
+    content: "周末回来吃饭，记得回个话。",
+    summary: "妈妈：周末回来吃饭，记得回个话",
+    deadline: null, received_at: "2026-09-23 12:30" }
+];
+
+var STATE = new URLSearchParams(location.search).get("state") || "ok";
+var listDl = document.getElementById("list-dl");
+var listNo = document.getElementById("list-no");
+var filterKey = document.getElementById("f-key");
+var filterGroup = document.getElementById("f-group");
+var filterCount = document.getElementById("f-count");
+
+function setStats(all, dl, no) {
+  document.getElementById("n-all").textContent = all;
+  document.getElementById("n-dl").textContent = dl;
+  document.getElementById("n-no").textContent = no;
+}
+
+function showLoading() {
+  setStats("–", "–", "–");
+  listDl.innerHTML = MessageCard.skeleton(2);
+  listNo.innerHTML = MessageCard.skeleton(1);
+}
+
+function showOk(items) {
+  var withDeadline = items.filter(function (x) { return !!x.deadline; });
+  var noDeadline = items.filter(function (x) { return !x.deadline; });
+
+  withDeadline.sort(function (a, b) {
+    var ta = MessageCard.deadlineTarget(a.deadline);
+    var tb = MessageCard.deadlineTarget(b.deadline);
+    return (ta ? ta.getTime() : Infinity) - (tb ? tb.getTime() : Infinity);
+  });
+
+  setStats(items.length, withDeadline.length, noDeadline.length);
+  listDl.innerHTML = withDeadline.length
+    ? withDeadline.map(MessageCard.render).join("")
+    : MessageCard.empty("暂无带截止时间的待办");
+  listNo.innerHTML = noDeadline.length
+    ? noDeadline.map(MessageCard.render).join("")
+    : MessageCard.empty("暂无无时限的重要事项");
+  MessageCard.startTimers();
+}
+
+function showEmpty() {
+  setStats(0, 0, 0);
+  listDl.innerHTML = MessageCard.empty("还没有带截止时间的待办<br>群里有新任务时会出现在这里");
+  listNo.innerHTML = MessageCard.empty("还没有无时限的重要事项");
+  MessageCard.stopTimers();
+}
+
+function showError(reason) {
+  setStats("–", "–", "–");
+  listDl.innerHTML = MessageCard.error(reason);
+  listNo.innerHTML = "";
+  MessageCard.stopTimers();
+}
+
+function load() {
+  showLoading();
+  window.setTimeout(function () {
+    if (STATE === "loading") return;
+    if (STATE === "error") {
+      showError("拿不到时间线数据。这是 mock 演示出来的错误状态，不是页面真的坏了 —— 点下面「重试」可以恢复。");
+      return;
+    }
+    if (STATE === "empty") { showEmpty(); return; }
+    showOk(MOCK_TIMELINE);
+  }, 600);
+}
+
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest ? e.target.closest("[data-retry]") : null;
+  if (btn) { STATE = "ok"; load(); }
+});
+
+function filterItems(items, keyword, group) {
+  var kw = (keyword || "").trim().toLowerCase();
+  return items.filter(function (x) {
+    if (group && x.group_name !== group) return false;
+    if (!kw) return true;
+    var hay = [x.summary, x.content, x.sender, x.group_name].join("\n").toLowerCase();
+    return hay.indexOf(kw) !== -1;
+  });
+}
+
+(function fillGroupOptions() {
+  var seen = [];
+  MOCK_TIMELINE.forEach(function (x) {
+    if (x.group_name && seen.indexOf(x.group_name) === -1) seen.push(x.group_name);
+  });
+  seen.forEach(function (g) {
+    var o = document.createElement("option");
+    o.value = g; o.textContent = g;
+    filterGroup.appendChild(o);
+  });
+})();
+
+function applyFilter() {
+  STATE = "ok";
+  var hits = filterItems(MOCK_TIMELINE, filterKey.value, filterGroup.value);
+  filterCount.textContent = "筛选：命中 " + hits.length + " / " + MOCK_TIMELINE.length + " 条";
+  if (hits.length) {
+    showOk(hits);
+  } else {
+    setStats(0, 0, 0);
+    listDl.innerHTML = MessageCard.empty("暂无匹配消息<br>换个关键词，或点「清空重置」恢复全部");
+    listNo.innerHTML = "";
+    MessageCard.stopTimers();
+  }
+}
+
+function resetFilter() {
+  filterKey.value = "";
+  filterGroup.value = "";
+  filterCount.textContent = "";
+  STATE = "ok";
+  load();
+}
+
+document.getElementById("f-apply").addEventListener("click", applyFilter);
+document.getElementById("f-reset").addEventListener("click", resetFilter);
+filterKey.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") applyFilter();
+});
+filterGroup.addEventListener("change", applyFilter);
+
+load();
+</script>
+</body>
+</html>
