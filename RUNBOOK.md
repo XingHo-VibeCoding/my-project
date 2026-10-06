@@ -35,7 +35,7 @@ http://localhost:8000
 |---|---|---|
 | F1 接收 | `POST /api/messages`，JSON 见下 | SmsForwarder 将来对接的端点；`GET /api/messages` 可看全部记录 |
 | F2 判断 | 收到即自动判断（规则引擎版） | 12 条测试数据 12/12 判对；DeepSeek 升级位在 `app/judge.py` 末尾 |
-| F3 推送 | `app/notify.py` 留桩 | `BARK_URL` 为空不推；接真机时手机装 Bark 填 key 即可 |
+| F3 推送 | `app/notify.py` 留桩 | `BARK_URL` 为空不推；接真机时改用 ntfy（**注意：字段要从 `body` 改成 `message`**，见第六节更正） |
 | F4 时间线 | 浏览器打开 `http://localhost:8000` | 带截止倒计时 + 无时限分组 |
 
 ## 四、测试数据（PRD 附录 A，验证 F1+F2+F4 全链路）
@@ -66,7 +66,7 @@ curl -X POST http://localhost:8000/api/messages -H "Content-Type: application/js
 ## 六、已知边界（今天不做，后续迭代）
 
 - F2 为规则引擎版，DeepSeek 接入位已留（等 API key）
-- F3 Bark 推送留桩（等手机装 Bark）
+- F3 推送留桩（**用 ntfy，不是 Bark** —— Bark 仅 iOS，接收机是安卓）
 - 穿透工具选型（TECH_DESIGN 2.4 留到今天定但清单未列）：ngrok 零门槛 / Cloudflare Tunnel 有域名时升级
 - 截止时间目前提取「22:00」这类时刻短语，倒计时以当天为基准演示；绝对日期换算留 DeepSeek 版（它最擅长）
 

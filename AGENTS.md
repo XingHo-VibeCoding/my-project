@@ -118,6 +118,7 @@
 ### Day 5（2026-09-20，已完成）
 
 - [x] `TECH_DESIGN.md` + `dataflow.svg` 入库（`140c46f`）：FastAPI + Jinja2 / SQLite / DeepSeek / Bark；部署选本机 + 内网穿透
+  > 2026-10-07 标注：此处「Bark」是 Day 5 当时的历史决策，**原文保留不改**。Day 12 已更正为 **ntfy**（Bark 仅 iOS，接收机是安卓），详见 `RUNBOOK.md` 第六节。
 
 ### Day 6（2026-09-21，已完成）
 
