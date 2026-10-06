@@ -4,6 +4,23 @@
 
 ---
 
+## 零、设备前提：全程按安卓手机设计（本产品的硬约束）
+
+**这个产品只做安卓，iPhone 不在支持范围内。** 后续所有测试、截图、验收都按安卓来。
+
+| 环节 | 为什么必须是安卓 | 后果 |
+|---|---|---|
+| 消息捕获 | iOS 不允许读取其他App 的通知 | **iPhone 整条路不成立**，不是「暂不支持」 |
+| 捕获工具 SmsForwarder | 安卓开源 App，无需 root | iOS 无对应工具 |
+| 推送接收| Bark 仅 iOS → 已出局，**改用 ntfy**（安卓可用） | ntfy 同样是一次 HTTP POST，方案形态不变 |
+| 实机验证 | 同伴手机是安卓；窄屏地址栏会截断 | **截图不必强求完整 URL**，能证明「手机能打开 + 数据正确」即可 |
+
+**验收标准按设备条件调整**：清单里写「图里要有地址栏」这类要求，若在手机上做不到（浏览器截断），换一个等效证据即可 —— 不要为了凑形式要求换设备重做。
+
+**别再选型 iOS 工具**：看到 Bark、Server 酱（依赖 iOS 推送）、依赖 iOS 通知权限的方案，直接排除，不用再论证。
+
+---
+
 ## 一、首次准备（只做一次）
 
 ```bash
@@ -35,7 +52,7 @@ http://localhost:8000
 |---|---|---|
 | F1 接收 | `POST /api/messages`，JSON 见下 | SmsForwarder 将来对接的端点；`GET /api/messages` 可看全部记录 |
 | F2 判断 | 收到即自动判断（规则引擎版） | 12 条测试数据 12/12 判对；DeepSeek 升级位在 `app/judge.py` 末尾 |
-| F3 推送 | `app/notify.py` 留桩 | `BARK_URL` 为空不推；接真机时改用 ntfy（**注意：字段要从 `body` 改成 `message`**，见第六节更正） |
+| F3 推送 | `app/notify.py` 留桩 | `NTFY_TOPIC` 为空不推；接真机时手机装 ntfy、填私有主题名即可（**JSON 字段要改成 `message`**，见第六节） |
 | F4 时间线 | 浏览器打开 `http://localhost:8000` | 带截止倒计时 + 无时限分组 |
 
 ## 四、测试数据（PRD 附录 A，验证 F1+F2+F4 全链路）
@@ -66,7 +83,7 @@ curl -X POST http://localhost:8000/api/messages -H "Content-Type: application/js
 ## 六、已知边界（今天不做，后续迭代）
 
 - F2 为规则引擎版，DeepSeek 接入位已留（等 API key）
-- F3 推送留桩（**用 ntfy，不是 Bark** —— Bark 仅 iOS，接收机是安卓）
+- F3 推送留桩（**通道是 ntfy**，见下方「设备前提」；`NTFY_TOPIC` 为空即不推）
 - 穿透工具选型（TECH_DESIGN 2.4 留到今天定但清单未列）：ngrok 零门槛 / Cloudflare Tunnel 有域名时升级
 - 截止时间目前提取「22:00」这类时刻短语，倒计时以当天为基准演示；绝对日期换算留 DeepSeek 版（它最擅长）
 
@@ -76,7 +93,7 @@ curl -X POST http://localhost:8000/api/messages -H "Content-Type: application/js
 
 ## 七、云端（CloudBase，Day 15/17 起）
 
-> 本机（第五节的 FastAPI）与云端（这一节）是**两套并行的东西**：本机跑带F1/F2 逻辑的完整应用，云端目前只有读接口。别混。
+> 本机（第五节的 FastAPI）与云端（这一节）是**两套并行的东西**：本机跑带 F1/F2 逻辑的完整应用，云端目前只有读接口。别混。
 
 ### 公网地址
 

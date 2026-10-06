@@ -57,7 +57,7 @@ def receive_message(msg: IncomingMessage):
     if rec["parse_status"] == "ok":
         result = judge(rec["sender"] or "", rec["content"] or "")
         db.insert_judgment(mid, result)
-        # F3：只推 important（MVP 留桩：BARK_URL 为空，返回 pushed=False）
+        # F3：只推 important（MVP 留桩：NTFY_TOPIC 为空，返回 pushed=False）
         if result["importance"] == "important":
             push_important(rec["group_name"], result["summary"] or "")
 
