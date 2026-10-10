@@ -1,130 +1,200 @@
 -- ==========================================================================
--- db/schema.sql · 数据模型定义（Day 16）
+-- db/schema.sql · 数据模型定义（改版版 · 2026-10-10）
 -- --------------------------------------------------------------------------
--- 两张表，各管一件事：
---   messages   「原料」：群里收到的原始消息。不可再生 —— 过去的就是过去了，
---                        AI 判错了还能拿它重判一次。
---   reminders  「结论」：AI 对每条消息的判定结果。可重算 —— 换模型重跑时
---                        整表覆盖即可，不用去改原料。
+-- ★ 本文件已在真实 CloudBase 数据库执行验证通过（2026-10-10）：
+--   建表 / 索引 / 视图全部成功；4 条约束（非法枚举、空标题、
+--   状态与完成时间不一致、图片超 10MB）均确认会正确拦截脏数据。
 --
--- 关联字段：reminders.message_id → messages.id（一条消息对一条判定）
+-- 对应需求：PRD.md「AI 日程整理工具」第四节 F4 标准日程表格输出
 --
--- 执行方式：CloudBase 控制台 → 数据库 → SQL 编辑器，粘贴本文件全部内容执行。
--- 本文件可重复执行（全部 IF NOT EXISTS / OR REPLACE），不会报错。
+-- 与旧版（legacy/db/schema.sql）的区别：
+--   旧版 messages + reminders ——「群里收到的消息」+「AI 的重要度判定」
+--   新版 sources    + tasks    ——「用户上传的原始内容」+「提取出的日程任务」
+--
+-- 为什么换表而不复用（改版拍板决定 B）：
+--   新产品的核心对象是「任务」，不是「消息」。字段含义完全不同：
+--     旧 reminders.deadline 存「周五 22:00」这种自然语言短语，靠前端换算倒计时
+--     新 tasks.deadline_at直接存绝对时间（TIMESTAMPTZ），相对表述在AI 解析阶段
+--                        就已按录入当天换算完毕，不留到前端做时间推算
+--   硬套旧表会导致字段语义错位，不如另起清晰的新结构。
+--
+-- ★ 旧表 messages / reminders **保留不删**（历史数据，也作为对照组）。
+--
+-- 执行方式：CloudBase 控制台 → 数据库 → SQL 编辑器，粘贴全部内容执行。
+-- 本文件可重复执行（IF NOT EXISTS），不会报错。
 -- ==========================================================================
 
 
 -- ==========================================================================
--- 表 1：messages —— 原始群消息（F1 落库）
+-- 表 1：sources —— 用户上传的原始内容（F1/F2 输入落库）
 -- ==========================================================================
-CREATE TABLE IF NOT EXISTS messages (
-    id            BIGSERIAL PRIMARY KEY,
-    group_name    TEXT        NOT NULL,          -- 群名，如「学习打卡群」
-    sender        TEXT        NOT NULL,          -- 发送人昵称，如「班长」
-    content       TEXT        NOT NULL,          -- 消息原文，不做任何清洗
-    received_at   TIMESTAMPTZ NOT NULL,          -- 消息到达本程序的时刻（带时区）
-    parse_status  TEXT        NOT NULL DEFAULT 'ok',   -- 解析结果：ok / failed
-                                                     -- PRD F1 验收 3：格式异常的消息
-                                                     -- 也要留痕，不能让程序崩
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 入库时刻
+-- 为什么要有这张表？
+--   「原始输入」和「解析结果」必须分开存，原因有三个：
+--     1. 可重解析：AI 抽错了要能拿原文重跑一遍，改模型后整批重算
+--     2. 可追溯：用户能看到「系统是从哪段内容提取出这条任务的」
+--     3. 不丢证据：原始内容永不因解析而丢失
+--
+-- 对应旧版的 messages 表，但语义更宽 —— 不再是「群消息」，
+-- 而是「用户主动上传的任何内容」（一段文字 / 一张截图）。
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS sources (
+    id              BIGSERIAL PRIMARY KEY,
+    input_type      TEXT        NOT NULL,      -- 输入方式：text 粘贴文字 / image 上传截图
+    raw_text        TEXT,                       -- OCR 识别出的文字；纯文本输入时等于原文
+    image_path      TEXT,                       -- 图片存储路径；纯文本输入时为 NULL
+    image_size      INTEGER,                    -- 图片字节数，用于校验是否超 10 MB 上限
+    parse_status    TEXT        NOT NULL DEFAULT 'pending',
+                                               -- pending 待解析 / ok 解析成功
+                                               -- failed 解析失败（识别失败、AI 超时等）
+                                               -- ★ 失败也要留痕，不能静默丢
+    error_message   TEXT,                       -- 失败原因，给用户看的提示文案
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 用户上传时刻
 
-    CONSTRAINT messages_parse_status_check
-        CHECK (parse_status IN ('ok', 'failed'))
+    CONSTRAINT sources_input_type_check
+        CHECK (input_type IN ('text', 'image')),
+
+    CONSTRAINT sources_parse_status_check
+        CHECK (parse_status IN ('pending', 'ok', 'failed')),
+
+    -- 图片大小硬上限 10 MB（PRD 第七节：手机截图随手就 2-5 MB，10 MB 够用）
+    CONSTRAINT sources_image_size_check
+        CHECK (image_size IS NULL OR image_size <= 10485760)
 );
 
-COMMENT ON TABLE  messages IS '原始群消息：SmsForwarder 转发的微信通知落库结果（F1）';
-COMMENT ON COLUMN messages.id           IS '主键，自增；reminders.message_id 指向它';
-COMMENT ON COLUMN messages.group_name   IS '群名，来自通知的「来自」字段';
-COMMENT ON COLUMN messages.sender       IS '发送人昵称，来自通知的「发送人」字段';
-COMMENT ON COLUMN messages.content      IS '消息正文原文，判定与展示都以它为准';
-COMMENT ON COLUMN messages.received_at  IS '消息到达时间，用 TIMESTAMPTZ 带时区存，避免夏令时/时区歧义';
-COMMENT ON COLUMN messages.parse_status IS 'ok=正常解析；failed=格式异常未能解析（PRD F1 验收 3 要求留痕）';
-COMMENT ON COLUMN messages.created_at   IS '入库时刻，跟 received_at 分开：一个是消息发生时间，一个是落库时间';
+COMMENT ON TABLE  sources IS '用户主动上传的原始内容：文字片段或截图（F1/F2 输入）';
+COMMENT ON COLUMN sources.id            IS '主键，自增；tasks.source_id 指向它';
+COMMENT ON COLUMN sources.input_type    IS 'text=粘贴文字｜image=上传截图（PRD F1/F2 双输入）';
+COMMENT ON COLUMN sources.raw_text      IS 'OCR 识别出的文字；text 输入时为用户原文，image 输入时为识别结果';
+COMMENT ON COLUMN sources.image_path    IS '图片存储路径；text 输入时为 NULL';
+COMMENT ON COLUMN sources.image_size    IS '图片字节数；数据库层再挡一次 10 MB 上限';
+COMMENT ON COLUMN sources.parse_status  IS 'pending=待解析｜ok=解析成功｜failed=解析失败（失败必须留痕）';
+COMMENT ON COLUMN sources.error_message IS '失败原因；面向用户的提示文案，不要写内部堆栈';
+COMMENT ON COLUMN sources.created_at    IS '用户上传时刻';
 
--- 按时间倒序翻消息列表（Day 17 的 /api/inbox 会这么查）
-CREATE INDEX IF NOT EXISTS idx_messages_received_at ON messages (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sources_created_at  ON sources (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sources_parse_status ON sources (parse_status);
 
 
 -- ==========================================================================
--- 表 2：reminders —— AI 判定结果（F2 输出）
+-- 表 2：tasks —— 提取出的日程任务（核心表 · PRD F4 统一字段）
 -- ==========================================================================
-CREATE TABLE IF NOT EXISTS reminders (
-    id           BIGSERIAL PRIMARY KEY,
-    message_id   BIGINT      NOT NULL,           -- ★ 关联字段：指向 messages.id
-    importance   TEXT        NOT NULL,           -- 判定三类：important / normal / chat
-    summary      TEXT,                           -- 一句话要点（闲聊可为空）
-    deadline     TEXT,                           -- 截止时间，存「自然语言短语」
-    judged_by    TEXT        NOT NULL DEFAULT 'rule-engine',  -- 谁判的：rule-engine / deepseek
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+-- PRD 规定的五个输出字段对应关系：
+--   任务标题   → title
+--   截止时间   → deadline_at（可为 NULL：AI 提不出时间时不猜，PRD 第三节）
+--   任务详情   → detail
+--   录入时间   → created_at
+--   完成状态   → status
+--
+-- 额外字段（工程必需，不属于用户可见输出）：
+--   source_id   追溯来自哪次上传
+--   deadline_raw 保留原始时间表述，用于详情展示（如「下周一 14:00」原话）
+--   parsed_by   哪个模型解析的，换模型重跑时能区分
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS tasks (
+    id              BIGSERIAL PRIMARY KEY,
+    source_id       BIGINT,                    -- 关联：指向 sources.id；手动补录的条目为 NULL
+    title           TEXT        NOT NULL,      -- ★ 任务标题（必填，唯一不可空字段）
+    deadline_at     TIMESTAMPTZ,               -- ★ 截止/执行时间；无时间信息时为 NULL，不猜测
+    deadline_raw    TEXT,                       -- 时间原始表述：「周五 22:00」「下周一14:00」
+    detail          TEXT,                       -- ★ 任务详情：具体内容、要求、注意事项
+    status          TEXT        NOT NULL DEFAULT 'pending',  -- ★ 完成状态
+    parsed_by       TEXT        NOT NULL DEFAULT 'glm-4.7-flash',  -- 解析用的模型名
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),  -- ★ 录入时间
+    completed_at    TIMESTAMPTZ,               -- 打卡完成时刻；未完成时为 NULL
 
-    -- 关联与自增删：一条消息被删，它的判定结果跟着删，不留孤儿数据
-    CONSTRAINT reminders_message_fk
-        FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE,
+    -- 来源删了，任务跟着删，不留孤儿数据
+    CONSTRAINT tasks_source_fk
+        FOREIGN KEY (source_id) REFERENCES sources (id) ON DELETE CASCADE,
 
-    -- 三类判定值写死在数据库里，插错值直接报错，不给脏数据机会
-    -- 取值必须是 app/judge.py 真正会输出的三个：important / normal / chat
-    -- （PRD 文档里把 normal 那一类叫「一般」，代码里叫 normal，以代码为准）
-    CONSTRAINT reminders_importance_check
-        CHECK (importance IN ('important', 'normal', 'chat'))
+    -- 只允许两种状态，写死在数据库里，插错值直接报错
+    CONSTRAINT tasks_status_check
+        CHECK (status IN ('pending', 'done')),
+
+    -- 状态与完成时间必须一致：done 必须有时间戳，pending 必须没有
+    -- 防止出现「标记完成了但没有完成时间」这种脏数据
+    CONSTRAINT tasks_completed_consistency
+        CHECK (
+            (status = 'done'    AND completed_at IS NOT NULL) OR
+            (status = 'pending' AND completed_at IS NULL)
+        ),
+
+    -- 标题不能是空白字符串
+    CONSTRAINT tasks_title_not_blank
+        CHECK (length(btrim(title)) > 0)
 );
 
-COMMENT ON TABLE  reminders IS 'AI 重要性判定结果：important 重要 / normal 一般 / chat 闲聊（F2）';
-COMMENT ON COLUMN reminders.id          IS '主键，自增';
-COMMENT ON COLUMN reminders.message_id  IS '★ 关联字段：指向 messages.id，一条消息对应一条判定';
-COMMENT ON COLUMN reminders.importance  IS 'important=重要（含任务/截止/@我）｜normal=一般（有价值但无需行动，PRD 叫「一般」）｜chat=纯闲聊表情。取值必须与 app/judge.py 输出一致';
-COMMENT ON COLUMN reminders.summary     IS '一句话要点，重要项必填；闲聊项为空';
-COMMENT ON COLUMN reminders.deadline    IS '截止时间，存「本周五 22:00」这类短语而不是时间戳 —— 前端 message-card.js 负责换算成倒计时（见 docs/api-contract.md 约定）';
-COMMENT ON COLUMN reminders.judged_by   IS '判定来源：rule-engine=F2 规则引擎（Day 7）｜deepseek=后续接入大模型';
-COMMENT ON COLUMN reminders.created_at  IS '本次判定完成的时间';
+COMMENT ON TABLE  tasks IS 'AI 提取出的日程任务：这是本项目的核心表（PRD F4）';
+COMMENT ON COLUMN tasks.id            IS '主键，自增';
+COMMENT ON COLUMN tasks.source_id     IS '★ 关联 sources.id；用户手动补录的条目为 NULL（不来自任何上传）';
+COMMENT ON COLUMN tasks.title         IS '★ 任务标题（PRD 五个字段之一）；数据库层禁止空白标题';
+COMMENT ON COLUMN tasks.deadline_at   IS '★ 截止/执行时间（PRD 五个字段之二）；★ 无时间信息时为 NULL，不猜测';
+COMMENT ON COLUMN tasks.deadline_raw  IS '时间原始表述原话（如「下周一 14:00」）；绝对时间算错了还能看出原话';
+COMMENT ON COLUMN tasks.detail        IS '★ 任务详情（PRD 五个字段之三）：具体内容、要求、注意事项';
+COMMENT ON COLUMN tasks.status        IS '★ 完成状态（PRD 五个字段之四）：pending 未完成 / done 已完成';
+COMMENT ON COLUMN tasks.parsed_by     IS '解析该任务的模型名；换模型重跑时能区分新旧结果';
+COMMENT ON COLUMN tasks.created_at    IS '★ 录入时间（PRD 五个字段之五）：任务进入表里的时刻';
+COMMENT ON COLUMN tasks.completed_at  IS '打卡完成时刻；status=pending 时必须为 NULL（约束保证一致）';
 
-CREATE INDEX IF NOT EXISTS idx_reminders_message_id  ON reminders (message_id);
-CREATE INDEX IF NOT EXISTS idx_reminders_importance ON reminders (importance);
-
-
--- ==========================================================================
--- 约束修正块（幂等）—— 为什么要专门写这一段？
---   表已经建过的情况下，再执行 CREATE TABLE IF NOT EXISTS 是【空操作】的，
---   改了文件里的 CHECK 也不会作用到已有的表上。所以这里主动做一次校正：
---   约束存在就先删掉，再按最新定义重建。可重复执行，不报错。
---
---   真实经过：Day 16 最初把第三类写成 'general'（照 PRD 文档「一般」），
---   但 app/judge.py 实际输出的是 'normal'。Day 16 学习者拍板：以代码为准。
--- ==========================================================================
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-          FROM pg_constraint
-         WHERE conname = 'reminders_importance_check'
-           AND conrelid = 'reminders'::regclass
-    ) THEN
-        ALTER TABLE reminders DROP CONSTRAINT reminders_importance_check;
-    END IF;
-
-    ALTER TABLE reminders
-        ADD CONSTRAINT reminders_importance_check
-        CHECK (importance IN ('important', 'normal', 'chat'));
-END $$;
+-- 最常用查询：按状态看今日待办（未完成 + 有截止时间的排前面）
+CREATE INDEX IF NOT EXISTS idx_tasks_status       ON tasks (status);
+-- 按截止时间排序；NULL 排最后（未指定时间的沉到底部）
+CREATE INDEX IF NOT EXISTS idx_tasks_deadline_at  ON tasks (deadline_at ASC NULLS LAST);
+-- 按录入时间倒序（历史回溯：最近上传的在最前）
+CREATE INDEX IF NOT EXISTS idx_tasks_created_at   ON tasks (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_source_id    ON tasks (source_id);
 
 
 -- ==========================================================================
--- Day 17 读接口的字段映射（现在就写死，别到时候再对）
+-- 视图：当日待办总表（PRD F4「每日自动汇总一张当日待办总表」）
 -- --------------------------------------------------------------------------
--- /api/timeline 的返回项 = 下面这个 JOIN 的结果，字段名与前端
--- web/mock/index.html 里的 MOCK_TIMELINE 完全一致：
+-- 为什么用视图而不是每次查？
+--   「当日待办总表」是一个固定的业务概念（今天要做什么），
+--   用视图固化下来：查询逻辑写一次，以后口径不会变。
+--   不写进表是因为「今天」每天在变，存进表就得每天更新，是反模式。
+-- ==========================================================================
+CREATE OR REPLACE VIEW v_today_todo AS
+SELECT
+    t.id,
+    t.title,
+    t.deadline_at,
+    t.deadline_raw,
+    t.detail,
+    t.status,
+    t.created_at,
+    t.completed_at
+FROM tasks t
+WHERE
+    -- 截止时间落在今天的
+    (t.deadline_at >= CURRENT_DATE
+     AND t.deadline_at <  CURRENT_DATE + INTERVAL '1 day')
+    -- 或者没有截止时间但今天录入的（手动补录的当日任务）
+    OR (t.deadline_at IS NULL
+        AND t.created_at >= CURRENT_DATE
+        AND t.created_at <  CURRENT_DATE + INTERVAL '1 day')
+ORDER BY
+    -- 有时间的按时间排前面，没时间的沉底
+    t.deadline_at ASC NULLS LAST,
+    t.created_at DESC;
+
+COMMENT ON VIEW v_today_todo IS '当日待办总表：有截止时间的按时间排，没时间的沉底（PRD F4）';
+
+
+-- ==========================================================================
+-- 与旧表的对照（改版说明，便于日后回溯）
+-- ==========================================================================
+--   旧 messages                →新 sources
+--     group_name/sender/content   input_type/raw_text/image_path
+--     received_at                 created_at
+--     parse_status(ok/failed)     parse_status(pending/ok/failed)
 --
---   SELECT m.id            AS id,
---          r.importance    AS importance,
---          m.group_name    AS group_name,
---          m.sender        AS sender,
---          m.content       AS content,
---          r.summary       AS summary,
---          r.deadline      AS deadline,
---          m.received_at   AS received_at
---     FROM reminders r
---     JOIN messages m ON m.id = r.message_id
---    WHERE r.importance = 'important'
---    ORDER BY r.deadline NULLS LAST, m.received_at DESC;
+--   旧 reminders              →  新 tasks
+--     importance(important/normal/chat)  ★ 不再需要 —— 新版不分「重要度」，
+--                                         只提取「任务」，全部都是要做的
+--     summary                          title + detail（拆成两个明确字段）
+--     deadline(自然语言短语)           deadline_at(绝对时间) + deadline_raw(原话)
+--     message_id                       source_id
+--     judged_by                        parsed_by
 --
--- 所以：【前端一行代码都不用改】，第 3 周换的只是数据来源。
+--   ★ 旧版 reminders 表保留在数据库中不删（历史数据 + 对照组），
+--     但新版代码**一律不读不写**这两张旧表。
 -- ==========================================================================
