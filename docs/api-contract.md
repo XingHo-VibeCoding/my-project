@@ -1,167 +1,270 @@
-# api-contract.md · 接口契约
+# api-contract.md · 接口契约（改版版）
 
 > 前后端对接口的唯一依据。**改接口前先改这份文档**，再改代码。
-> Day 15 建立；Day 16–20 逐条补齐业务接口。
+> 改版重写于 2026-10-10｜对应需求 [`PRD.md`](../PRD.md)
 
-**当前进度**：第1 节通用约定 ✅｜第 2 节 `/api/health` ✅｜第 3 节 `/api/timeline` ✅｜第 4 节 `/api/inbox` ✅｜第 5 节 待定义（Day 18–20）
+**当前进度**：第 0 节通用约定 ✅｜第 1 节 `POST /api/parse/text` ⏳ 待实现｜第 2 节 `POST /api/parse/image` ⏳ 待实现｜第 3 节任务管理 ⏳ 待实现｜第 4 节待定义
+
+**旧版契约**（`/api/health`、`/api/timeline`、`/api/inbox`）已随旧版代码移入 `legacy/`，新版不实现这三个接口。
 
 ---
 
 ## 0. 怎么写、怎么用
 
-- 本文每个接口都写清：**请求怎么发、成功返回什么字段、出错返回什么**。
-- 「已上线」= 公网能调通；「待定义」= 只占位，字段还没定，**不要照着写代码**。
+- 每个接口都写清：**请求怎么发、成功返回什么字段、出错返回什么**。
+- 「已上线」= 公网能调通；「⏳ 待实现」= 契约已定但代码未写，**可照着写但别当已可用**。
 - 字段命名统一 `snake_case`；时间统一 ISO 8601（UTC，带 `Z`）。
 
----
-
-## 1. 通用约定
+### 通用约定
 
 | 项 | 值 |
 |---|---|
-| 云函数基址（HTTP 访问服务） | `https://felix-41414-d1g6voa3qf2ec166b-1499376110.ap-shanghai.app.tcloudbase.com` |
-| 前端静态站（静态网站托管） | `https://felix-41414-d1g6voa3qf2ec166b-1499376110.tcloudbaseapp.com` |
-| 环境 ID | `felix-41414-d1g6voa3qf2ec166b` |
 | 响应 Content-Type | `application/json; charset=utf-8` |
-| 跨域（CORS） | **Day 20 才在「HTTP 访问服务」里配**；在此之前前端不发任何请求，`web/mock/index.html` 的数据全部写死在页面里 |
+| 鉴权 | **一期无鉴权**（单用户工具，手机打开即用，PRD 第七节） |
+| 跨域（CORS） | 静态托管站与云函数不同域，需在「HTTP 访问服务」配 `Access-Control-Allow-Origin: *` |
+| 时间格式 | 入库用 `TIMESTAMPTZ`；出参用 ISO 8601 UTC 带 `Z` |
+| **AI 解析耗时** | **3～10 秒**（含识图可能更久）。前端**必须显示加载状态**，否则用户以为死机 |
 
-**错误响应的统一形状**（所有接口一致）：
+### 错误响应统一形状
 
 ```json
-{ "ok": false, "service": "group-reminder", "fn": "<函数名>", "env": "<环境ID>", "error": "<错误码>" }
+{
+  "ok": false,
+  "error": "<错误码>",
+  "message": "<给人看的中文提示>",
+  "hint": "<可选：该怎么处理>"
+}
 ```
+
+**错误码总表**：
+
+| error | HTTP | 含义 | 前端该怎么处理 |
+|---|---|---|---|
+| `NO_API_KEY` | 500 | 环境变量没配 AI Key | 提示「服务未配置」，不重试 |
+| `AI_TIMEOUT` | 504 | AI 响应超时 | 提示用户重试 |
+| `AI_BUSY` | 429 | 免费模型并发限流 | **提示「请稍候重试」**，不立即重试 |
+| `AI_BAD_OUTPUT` | 500 | AI 返回的东西解析不了 | 提示「识别失败，请换张图或换个说法」 |
+| `IMAGE_TOO_LARGE` | 413 | 图片超10 MB | 明确提示上限值 |
+| `IMAGE_BAD_FORMAT` | 415 | 图片格式不支持 | 提示支持的格式 |
+| `EMPTY_INPUT` | 400 | 文本为空 / 没传文件 | 提示用户输入内容 |
+| `NOT_FOUND` | 404 | 任务不存在或已删除 | 提示刷新列表 |
 
 ---
 
-## 2. GET /api/health（已上线 · Day 15）
+## 1. POST /api/parse/text⏳ 待实现
 
-**用途**：公网探活。用来确认「域名 → HTTP 访问服务 → 云函数」这条链路是通的。
+**用途**：粘贴文字 → AI 提取任务 → 落库 → 返回结构化任务列表。
 
-**请求**：`GET /api/health`，无参数、无请求体。
+### 请求
 
-**成功 200**
+`Content-Type: application/json`
+
+```json
+{ "raw_text": "班长：@所有人 本周五22:00前把作业提交到班级仓库\n小王：哈哈哈哈好困" }
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `raw_text` | string | ✅ | 用户粘贴的原始文本，**不做任何预处理** |
+
+**长度限制**：1～20000 字符。超长返回 `EMPTY_INPUT` 并在 message 里说明。
+
+### 成功 200
+
+```json
+{
+  "ok": true,
+  "source_id": 13,
+  "ocr_text": null,
+  "count": 2,
+  "data": [
+    {
+      "id": 41,
+      "title": "提交本周作业",
+      "deadline_at": "2026-10-17T14:00:00.000Z",
+      "deadline_raw": "本周五 22:00",
+      "detail": "把作业提交到班级仓库，过时不候",
+      "status": "pending",
+      "created_at": "2026-10-13T14:30:00.000Z"
+    }
+  ]
+}
+```
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `ok` | boolean | 恒为 `true` |
-| `service` | string | 服务名，本项目固定 `group-reminder` |
-| `fn` | string | 函数名，本接口固定 `api-health` |
-| `env` | string | **由平台运行时注入，代码里不写死** |
-| `version` | string | 契约版本，当前 `1.0.0` |
-| `ts` | string | 服务器时间，ISO 8601 UTC |
+| `source_id` | number | 本次上传在 `sources` 表的记录 id |
+| `ocr_text` | string \| **null** | 文本输入恒为 `null`；图片输入为识别出的文字（便于前端展示「识别到了什么」） |
+| `count` | number | 本次提取到的任务数 |
+| `data` | array | 任务列表 |
 
-真实返回（2026-10-04 实测）：
+`data[]` 与 `GET /api/tasks` 的返回项**结构完全一致**（PRD 验收 A2 要求）。
 
-```json
-{"ok":true,"service":"group-reminder","fn":"api-health","env":"felix-41414-d1g6voa3qf2ec166b","version":"1.0.0","ts":"2026-10-04T15:19:53.810Z"}
-```
+### 时间字段的填法（重要）
 
-**失败 405**（用了非 GET 方法）
+| 情况 | `deadline_at` | `deadline_raw` |
+|---|---|---|
+| 原文有明确时间 | **绝对时间**（ISO 8601 UTC） | 原文表述，如「本周五 22:00」 |
+| 原文无时间 | **`null`** | `null` |
+| 原文有相对时间（明天/下周一） | **按录入当天换算成绝对时间** | 原文表述原样保留 |
 
-```json
-{"ok":false,"service":"group-reminder","fn":"api-health","env":"felix-41414-d1g6voa3qf2ec166b","error":"METHOD_NOT_ALLOWED"}
-```
+**换算在 AI 解析阶段完成**，前端只做展示，**不做时间推算**。
 
-**怎么判断这次探活是真的**：看 `env` 是不是等于你的环境 ID `felix-41414-d1g6voa3qf2ec166b`。
-地址能打开 ≠ 部署成功——域名是公用的，可能打开的是别人的地址或旧版本；`env` 是平台注入的，只有你自己环境里的这份代码才会回这个值。**这是公网地址第一次打开时第一个要确认的事。**
+### 失败
+
+| 状态 | error | 场景 |
+|---|---|---|
+| 400 | `EMPTY_INPUT` | 文本为空或超长 |
+| 429 | `AI_BUSY` | 免费模型并发限流 |
+| 500 | `NO_API_KEY` | 未配置 `ZHIPU_API_KEY` |
+| 500 | `AI_BAD_OUTPUT` | AI 返回无法解析 |
+| 504 | `AI_TIMEOUT` | 超时 |
 
 ---
 
-## 3. GET /api/timeline（已上线 · Day 17）
+## 2. POST /api/parse/image ⏳ 待实现
 
-**用途**：时间线页面数据源。返回 AI 判定为 `important` 的重要事项（F2 → F4）。
-只取 `reminders` 表里 `importance='important'` 的行，通过 `message_id` 关联带回消息原文。
+**用途**：上传截图 → AI 识图 → **转成文字后走与 §1 完全相同的提取流程** → 返回同样结构。
 
-**请求**：`GET /api/timeline?limit=<数字>`
+### 请求
+
+`Content-Type: multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `file` | binary | ✅ | 图片文件 |
+
+**限制（必须在界面上明示）**：
+
+| 项 | 值 | 超限返回 |
+|---|---|---|
+| 大小 | **≤ 10 MB** | `IMAGE_TOO_LARGE` (413) |
+| 格式 | jpg / jpeg / png / webp | `IMAGE_BAD_FORMAT` (415) |
+
+### 为什么必须走两步（不能一步到位）
+
+实测结论（2026-10-10 验证）：
+
+| 方案 | 同一张通知截图的提取结果 |
+|---|---|
+| 一步（识图+提取都用 `glm-4v-flash`） | 2 条 —— **漏了「@我 私信」这条真任务** |
+| **两步（`glm-4v-flash` 识图 → `glm-4.7-flash` 提取）** | **3 条全对** |
+
+原因：`glm-4v-flash` 的 `max_tokens` 上限是 1024，边识别边提取会被截断。
+
+**这同时满足 PRD 的设计要求**——两条路径在「拿到文字」之后汇合：
+
+```
+文字输入 ─────────────────┐
+                ├→ 同一套提取逻辑 → 同一套返回结构
+图片 → 识图 → 文字 ──────┘
+```
+
+### 成功 200
+
+**与 §1 完全相同的结构**，唯一区别：
+
+```json
+{
+  "ok": true,
+  "source_id": 14,
+  "ocr_text": "- 班长: @所有人 本周五 22:00 前把本周作业提交到班级仓库\n- 小王: 哈哈哈哈今天好困",
+  "count": 1,
+  "data": [ ... ]
+}
+```
+
+`ocr_text` 有值，方便前端显示「我们识别到了这些文字」，用户能立刻判断上传的图对不对。
+
+### 失败
+
+除 §1 的全部错误外，还有：
+
+| 状态 | error | 场景 |
+|---|---|---|
+| 413 | `IMAGE_TOO_LARGE` | 超 10 MB |
+| 415 | `IMAGE_BAD_FORMAT` | 格式不支持 |
+| 400 | `EMPTY_INPUT` | 没传文件 |
+
+---
+
+## 3. 任务管理 ⏳ 待实现
+
+### GET /api/tasks
+
+**用途**：任务列表，支持筛选。
+
+**查询参数**：
 
 | 参数 | 必填 | 说明 |
 |---|---|---|
-| `limit` | 否 | 返回条数，默认 `20`，上限 `100`。非法值（`abc` / `0` / 负数）按 `20` 处理，小数向下取整 |
+| `status` | 否 | `pending` / `done`；不传= 全部 |
+| `limit` | 否 | 默认 50，上限 200；非法值按 50 处理 |
 
 **成功 200**
 
+```json
+{ "ok": true, "count": 2, "data": [ { "id": 41, "title": "...", ... } ] }
+```
+
+`data[]` 结构与 §1 的 `data[]` 完全一致。
+
+### GET /api/today
+
+**用途**：当日待办总表（PRD F4「每日自动汇总一张当日待办总表」）。
+
+**实现说明**：直接查数据库视图 `v_today_todo`（建表时已创建），业务代码不自己拼时间条件。
+
+**成功 200**：结构同 `GET /api/tasks`。
+
+### PATCH /api/tasks/`<id>`
+
+**用途**：改任务 / 打卡 / 取消打卡。
+
+**请求**
+
+```json
+{ "status": "done" }
+```
+
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `ok` | boolean | 恒为 `true` |
-| `service` | string | 固定 `group-reminder` |
-| `fn` | string | 固定 `api-timeline` |
-| `env` | string | 平台注入 |
-| `count` | number | 本次返回条数 |
-| `data` | array | 事项列表，每项 8 个字段（见下） |
+| `status` | string | `pending` / `done` |
+| `title` | string | 可选，改标题 |
+| `detail` | string | 可选，改详情 |
+| `deadline_at` | string \| null | 可选，改截止时间 |
 
-`data[]` 字段：
+**⚠️ 打卡必须同时给完成时间**（数据库约束 `tasks_completed_consistency` 强制）：
 
-| 字段 | 类型 | 来源 | 说明 |
+| 操作 | `status` | `completed_at` | 实现|
 |---|---|---|---|
-| `id` | number | messages | 消息 ID |
-| `importance` | string | reminders | 固定 `important`（本接口只出重要的） |
-| `group_name` | string | messages | 群名 |
-| `sender` | string | messages | 发送人 |
-| `content` | string | messages | 消息原文 |
-| `summary` | string | reminders | 判定摘要（F2 产出） |
-| `deadline` | string | reminders | **自然语言短语**（如 `22:00`），不是时间戳 |
-| `received_at` | string | messages | ISO 8601 UTC，带 `Z` |
+| 标记完成 | `done` | 自动填 `now()` | 服务端处理，**前端不用传** |
+| 取消完成 | `pending` | 自动置 `null` | 同上 |
 
-排序：`deadline` 升序（空值排最后）→ `created_at` 降序。
+**成功 200**：`{"ok": true, "data": { ...改后的任务... }}`
 
-> `deadline` 保持自然语言短语是**有意的**：换算成剩余时间由前端 `message-card.js` 负责（Day 8 起就是这个约定）。改这一条要同步改整套卡片。
+**失败**：`NOT_FOUND` (404)
 
-**失败**
+### DELETE /api/tasks/`<id>`
 
-| 状态码 | error | 场景 |
-|---|---|---|
-| 405 | `METHOD_NOT_ALLOWED` | 用了非 GET |
-| 500 | `DB_UNAVAILABLE` | 查库失败，`code` 里带真实原因（如 `NO_API_KEY` / `HTTP_500`），`message` 已脱敏 |
+**用途**：删除无效任务。
+
+**成功 200**：`{"ok": true, "deleted_id": 41}`
+
+**失败**：`NOT_FOUND` (404)
 
 ---
 
-## 4. GET /api/inbox（已上线 · Day 17）
+## 4. 待定义 ⏳
 
-**用途**：收件箱页面数据源。返回群消息原文（F1），每条附带它的判定结果。
-
-**请求**：`GET /api/inbox?limit=<数字>`，参数同上。
-
-**成功 200**
-
-| 字段 | 类型 | 说明 |
+| 接口 | 用途 | 计划 |
 |---|---|---|
-| `ok` | boolean | 恒为 `true` |
-| `service` / `fn` / `env` | string | 同上，`fn` 固定 `api-inbox` |
-| `count` | number | 本次返回条数 |
-| `data` | array | 消息列表 |
-
-`data[]` 字段：
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `id` | number | 消息 ID |
-| `group_name` | string | 群名 |
-| `sender` | string | 发送人 |
-| `content` | string | 消息原文 |
-| `received_at` | string | ISO 8601 UTC，带 `Z` |
-| `parse_status` | string | 解析状态（`ok` / 失败标记） |
-| `importance` | string \| **null** | `important` / `chat`；**还没判定过就是 `null`** |
-
-排序：`received_at` 降序（最新在上）。
-
-> **未判定的消息照样出现在列表里**（`importance: null`）。把「还没处理」当成「不存在」是最容易犯的错——前端必须能处理 `null` 这一列。
-
-**失败**：同`/api/timeline`（405 / 500 `DB_UNAVAILABLE`）。
+| 二期：优先级排序 | AI 自动判紧急度/重要度并排序 | 改版后二期 |
+| 日历导出 | 导出到手机系统日历 | 一期不做（PRD 第六节） |
 
 ---
 
-## 5. 待定义接口（Day 18–20 补齐，本节只占位）
+## 5. 变更记录
 
-> 下表只登记「有什么、哪天做」，**字段一律没定**，到时候连字段一起补进来。
-
-| 路径 | 方法 | 用途 | 计划在 | 状态 |
-|---|---|---|---|---|
-| （写接口） | POST | 落库 / 更新判定结果 | Day 18–19 | 待定义 |
-| 跨域配置 | — | HTTP 访问服务里配 CORS，前端才允许发请求 | Day 20 | 待定义 |
-
----
-
-## 6. 变更记录
-
-- 2026-10-04（Day 15）：建立本文档；落地 `GET /api/health`（已公网可访问）；登记待定义接口 4 项；写明跨域 Day 20 才做。
-- 2026-10-06（Day 17）：补齐 `GET /api/timeline` 与 `GET /api/inbox` 完整契约（字段表 / 排序 / limit 规则 / 错误形状）；确认两者与 `MOCK_TIMELINE` 字段名逐字对应，第3 周换真数据前端不用改。
+- **2026-10-10（改版）**：整体重写。旧版`/api/health`、`/api/timeline`、`/api/inbox` 随旧版代码移入 `legacy/`，新版不实现。新增 §1 文本解析、§2 图片解析、§3 任务管理三组接口。
+- 2026-10-04（旧版）：建立本文档；实现 `/api/health`。**已废弃**。
