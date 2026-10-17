@@ -20,3 +20,7 @@ node_modules/
 data/*.db
 __pycache__/
 *.pyc
+
+# 云函数 Python 编译缓存
+__pycache__/
+*.pyc

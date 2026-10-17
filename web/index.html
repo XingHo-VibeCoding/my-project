@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>AI 日程助手</title>
+<style>
+/* ==================================================================
+   手机优先设计（PRD F6 硬要求）
+   ——单手可操、触控目标 ≥44px、375px 小屏不横向滚动、无横向溢出
+   ================================================================== */
+:root{
+  --bg:#f6f7f9; --card:#fff; --text:#1a1a1a; --sub:#6b7280;
+  --line:#e5e7eb; --brand:#2563eb; --brand-soft:#eff6ff;
+  --danger:#dc2626; --ok:#16a34a; --warn:#d97706;
+  --r:12px; --tap:44px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg); color:var(--text);
+  font-size:16px; line-height:1.6;
+  /* 防止 iOS 输入时页面跳动 */
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:640px;margin:0 auto;padding:0 16px}
+
+/* ---------- 顶栏 ---------- */
+header{
+  background:var(--card); border-bottom:1px solid var(--line);
+  padding:14px 0; position:sticky; top:0; z-index:20;
+}
+header h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.2px}
+header .sub{color:var(--sub);font-size:13px;margin-top:2px}
+
+/* ---------- 卡片 ---------- */
+.card{
+  background:var(--card); border:1px solid var(--line);
+  border-radius:var(--r); padding:16px; margin:14px 0;
+}
+
+/* ---------- 双输入：分段控件 ---------- */
+.tabs{display:flex;gap:0;background:#f0f1f4;border-radius:10px;padding:3px;margin-bottom:14px}
+.tabs button{
+  flex:1; min-height:var(--tap); border:0; background:transparent;
+  font-size:15px; font-family:inherit; color:var(--sub);
+  border-radius:8px; cursor:pointer; font-weight:500;
+}
+.tabs button[aria-selected="true"]{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+/* ---------- 文本输入 ---------- */
+textarea{
+  width:100%; min-height:130px; padding:12px; font-size:16px; /*16px 防iOS 缩放 */
+  font-family:inherit; border:1px solid var(--line); border-radius:10px;
+  resize:vertical; background:#fff; color:var(--text);
+}
+textarea:focus,input:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:var(--brand)}
+
+/* ---------- 图片上传区 ---------- */
+.upload{
+  border:2px dashed var(--line); border-radius:var(--r);
+  padding:28px 16px; text-align:center; cursor:pointer;
+  background:#fafbfc; min-height:120px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+}
+.upload:active{border-color:var(--brand);background:var(--brand-soft)}
+.upload .ico{font-size:32px;line-height:1}
+.upload .t{font-size:15px;font-weight:500}
+.upload .h{font-size:13px;color:var(--sub)}
+.preview{position:relative;margin-top:12px}
+.preview img{width:100%;border-radius:10px;display:block;border:1px solid var(--line)}
+.preview .x{
+  position:absolute;top:8px;right:8px;width:var(--tap);height:var(--tap);
+  background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:50%;
+  font-size:20px;line-height:1;cursor:pointer;
+}
+
+/* ---------- 主按钮：放在屏幕下半部（拇指可达区） ---------- */
+.btn{
+  width:100%; min-height:52px; margin-top:14px;
+  background:var(--brand); color:#fff; border:0; border-radius:12px;
+  font-size:16px; font-weight:600; font-family:inherit; cursor:pointer;
+}
+.btn:active{opacity:.85}
+.btn:disabled{background:#c7cbd1;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--brand);border:1px solid var(--brand)}
+
+/* ---------- 加载态（AI 要 3~10 秒，必须有反馈） ---------- */
+.loading{display:none;padding:28px 0;text-align:center}
+.loading.on{display:block}
+.spinner{
+  width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--brand);
+  border-radius:50%;margin:0 auto 14px;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading p{margin:0;color:var(--sub);font-size:14px}
+.loading .tip{margin-top:6px;font-size:13px;color:#9ca3af}
+
+/* ---------- 任务卡 ---------- */
+.task{
+  border:1px solid var(--line); border-radius:var(--r);
+  padding:14px; margin-bottom:12px; background:var(--card);
+}
+.task.done{opacity:.6}
+.task.done .title{text-decoration:line-through;color:var(--sub)}
+.task .row1{display:flex;align-items:flex-start;gap:10px}
+.task .title{flex:1;font-size:16px;font-weight:500;word-break:break-word;margin:0}
+.task .meta{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.badge{
+  font-size:12px;padding:2px 8px;border-radius:999px;
+  background:#f3f4f6;color:var(--sub);white-space:nowrap;
+}
+.badge.time{background:var(--brand-soft);color:var(--brand)}
+.badge.none{background:#fef3c7;color:var(--warn)}
+.badge.over{background:#fee2e2;color:var(--danger)}
+.badge.done{background:#dcfce7;color:var(--ok)}
+.task .detail{
+  margin-top:8px;font-size:14px;color:var(--sub);
+  word-break:break-word;white-space:pre-wrap;
+}
+/* 打卡圆圈：大触控目标 */
+.check{
+  width:28px;height:28px;min-width:var(--tap);min-height:var(--tap);
+  border:2px solid var(--line); border-radius:50%;background:#fff;
+  cursor:pointer; display:grid;place-items:center; flex-shrink:0;
+  margin:-8px; /* 让视觉圆圈是 28px 但可点区域仍是 44px */
+}
+.check[aria-checked="true"]{background:var(--ok);border-color:var(--ok)}
+.check svg{width:15px;height:15px;stroke:#fff;stroke-width:3;fill:none;opacity:0}
+.check[aria-checked="true"] svg{opacity:1}
+.task .acts{display:flex;gap:8px;margin-top:12px}
+.task .acts button{
+  min-height:var(--tap);padding:0 14px;font-size:14px;font-family:inherit;
+  border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;color:var(--sub);
+}
+.task .acts button.del{color:var(--danger);border-color:#fecaca}
+
+/* ---------- 识别结果预览 ---------- */
+.ocr{
+  margin-top:14px;padding:12px;background:#f9fafb;border-radius:10px;
+  border:1px solid var(--line);
+}
+.ocr h4{margin:0 0 6px;font-size:13px;color:var(--sub);font-weight:500}
+.ocr pre{
+  margin:0;font-size:13px;white-space:pre-wrap;word-break:break-word;
+  color:var(--sub);max-height:140px;overflow:auto;line-height:1.5;
+}
+
+/* ---------- 空态/错误 ---------- */
+.empty{text-align:center;padding:36px 16px;color:var(--sub)}
+.empty .big{font-size:40px;margin-bottom:10px;line-height:1}
+.err{
+  background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;
+  padding:12px;border-radius:10px;margin:12px 0;font-size:14px;
+}
+.toast{
+  position:fixed;left:50%;bottom:calc(24px + var(--safe-b));transform:translateX(-50%);
+  background:#1f2937;color:#fff;padding:12px 18px;border-radius:10px;
+  font-size:14px;z-index:99;opacity:0;pointer-events:none;transition:opacity .2s;
+  max-width:calc(100% - 32px);text-align:center;
+}
+.toast.on{opacity:1}
+
+/* ---------- 底部固定操作条 ---------- */
+.foot{
+  position:sticky;bottom:0;background:rgba(255,255,255,.96);
+  border-top:1px solid var(--line);padding:10px 0 calc(10px + var(--safe-b));
+  backdrop-filter:blur(8px);margin-top:20px;
+}
+.stats{font-size:13px;color:var(--sub);text-align:center;margin-bottom:8px}
+
+/* 小屏（375px 及以下）微调 */
+@media (max-width:375px){
+  .wrap{padding:0 12px}
+  .card{padding:14px 12px}
+  .task .acts button{flex:1}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>AI 日程助手</h1>
+    <div class="sub">粘贴文字或上传截图，自动整理成待办清单</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ 输入区 ============ -->
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button id="tab-text" role="tab" aria-selected="true" onclick="switchTab('text')">粘贴文字</button>
+      <button id="tab-img" role="tab" aria-selected="false" onclick="switchTab('image')">上传截图</button>
+    </div>
+
+    <!-- 文字输入 -->
+    <div id="pane-text">
+      <textarea id="raw" placeholder="把群通知、短信、周计划等文字粘贴到这里…&#10;&#10;例如：&#10;班长：本周五22:00 前把作业提交到班级仓库&#10;小王：哈哈哈哈好困（这种会被自动忽略）"></textarea>
+    </div>
+
+    <!-- 图片输入 -->
+    <div id="pane-image" style="display:none">
+      <div class="upload" id="drop" onclick="document.getElementById('file').click()">
+        <div class="ico">↑</div>
+        <div class="t">点击选择截图</div>
+        <div class="h">支持 jpg / png / webp，不超过 3 MB</div>
+      </div>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp" style="display:none">
+      <div class="preview" id="preview" style="display:none">
+        <img id="pimg" alt="已选择的截图">
+        <button class="x" onclick="clearImage()" aria-label="移除图片">×</button>
+      </div>
+    </div>
+
+    <button class="btn" id="go" onclick="submit()">开始整理</button>
+
+    <!-- 加载态：AI 要 3~10 秒，必须给反馈否则用户以为死机 -->
+    <div class="loading" id="load">
+      <div class="spinner"></div>
+      <p id="loadtext">AI 正在识别和整理…</p>
+      <p class="tip">通常 3~10 秒，图片会稍慢一些</p>
+    </div>
+
+    <div id="err"></div>
+
+    <!-- 识别结果预览：让用户确认「我们看到了什么」 -->
+    <div class="ocr" id="ocr" style="display:none">
+      <h4>识别到的文字（有问题可以重新整理）</h4>
+      <pre id="ocrtext"></pre>
+    </div>
+  </div>
+
+  <!-- ============ 任务列表 ============ -->
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button id="f-all" onclick="setFilter('')" aria-selected="true">全部</button>
+      <button id="f-pending" onclick="setFilter('pending')" aria-selected="false">待完成</button>
+      <button id="f-done" onclick="setFilter('done')" aria-selected="false">已完成</button>
+    </div>
+    <div id="list"></div>
+  </div>
+
+</div>
+
+<!-- 底部操作条 -->
+<div class="foot">
+  <div class="wrap">
+    <div class="stats" id="stats">—</div>
+    <button class="btn ghost" onclick="loadTasks()" style="margin:0">刷新列表</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==================================================================
+   配置：接口地址集中在这里，方便换环境
+   ================================================================== */
+const API = 'https://felix-41414-d1g6voa3qf2ec166b-1499376110.ap-shanghai.app.tcloudbase.com';
+const MAX_MB = 3;
+const OK_TYPES = ['image/jpeg','image/jpg','image/png','image/webp'];
+
+let mode = 'text';
+let picked = null;   // 选中的图片 File
+let filter = '';
+
+/* ---------------- 小工具 ---------------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let toastTimer;
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('on'),2200);
+}
+function showErr(msg){ $('err').innerHTML = msg? `<div class="err">${esc(msg)}</div>` : ''; }
+function setLoad(on, text){
+  $('load').classList.toggle('on', on);
+  if(text) $('loadtext').textContent=text;
+  $('go').disabled = on;
+}
+
+/* ---------------- 切换输入方式 ---------------- */
+function switchTab(m){
+  mode=m;
+  $('tab-text').setAttribute('aria-selected', m==='text');
+  $('tab-img').setAttribute('aria-selected', m==='image');
+  $('pane-text').style.display = m==='text'?'':'none';
+  $('pane-image').style.display = m==='image'?'':'none';
+  showErr('');
+  $('ocr').style.display='none';
+  $('go').textContent = '开始整理';
+}
+
+/* ---------------- 选图 ---------------- */
+$('file').addEventListener('change', e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  // 前端也校验一次，不合格立刻告诉用户，别等他提交后等 10 秒才报错
+  if(OK_TYPES.indexOf(f.type)<0){
+    showErr('这个格式不支持，请选jpg / png / webp'); e.target.value=''; return;
+  }
+  if(f.size > MAX_MB*1024*1024){
+    showErr(`图片太大（${(f.size/1024/1024).toFixed(1)} MB），请压缩到 ${MAX_MB} MB 以内`); e.target.value=''; return;
+  }
+  picked=f;
+  const r=new FileReader();
+  r.onload=e=>{ $('pimg').src=e.target.result; $('preview').style.display=''; };
+  r.readAsDataURL(f);
+  showErr('');
+  $('go').textContent='识别并整理';
+});
+function clearImage(){
+  picked=null; $('file').value=''; $('preview').style.display='none'; $('ocr').style.display='none';
+}
+
+/* ---------------- 提交 ---------------- */
+async function submit(){
+  showErr(''); $('ocr').style.display='none';
+
+  if(mode==='text'){
+    const raw=$('raw').value.trim();
+    if(!raw){ showErr('先粘贴一些文字'); return; }
+    await run('/api/parse/text', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({raw_text:raw})});
+  }else{
+    if(!picked){ showErr('先选择一张截图'); return; }
+    const fd=new FormData();
+    fd.append('file', picked, picked.name);
+    await run('/api/parse/image', {method:'POST', body:fd});
+  }
+}
+
+async function run(url, opt){
+  setLoad(true);
+  const isImg = url.indexOf('image')>=0;
+  $('loadtext').textContent = isImg? 'AI 正在识别图片文字…' : 'AI 正在整理…';
+  try{
+    const resp = await fetch(API+url, opt);
+    let d;
+    try{ d = await resp.json(); }
+    catch(e){ throw new Error('服务返回了非 JSON 内容（HTTP '+resp.status+'），请稍后重试'); }
+
+    if(!resp.ok || d.ok===false){
+      // 把后端给的中文提示直接显示出来，不要让用户看 undefined
+      throw new Error(d.message || d.hint || ('请求失败（HTTP '+resp.status+'）'));
+    }
+    if(d.ocr_text){
+      $('ocrtext').textContent = d.ocr_text;
+      $('ocr').style.display='';
+    }
+    const n = d.count||0;
+    toast(n? `整理出 ${n} 条任务` : '没有找到待办任务');
+    if(!n) showErr('没有识别出需要做的事。可以检查一下内容里是否包含任务或时间要求。');
+    await loadTasks();
+  }catch(err){
+    showErr(err.message || '出错了，请重试');
+  }finally{
+    setLoad(false);
+  }
+}
+
+/* ---------------- 任务列表 ---------------- */
+function setFilter(f){
+  filter=f;
+  ['all','pending','done'].forEach(k=>{
+    $('f-'+k).setAttribute('aria-selected', f===k?'true':'false');
+  });
+  loadTasks();
+}
+
+async function loadTasks(){
+  const list=$('list');
+  list.innerHTML='<div class="empty"><div class="big">◌</div><div>加载中…</div></div>';
+  try{
+    const qs = filter? ('?status='+filter) : '';
+    const r=await fetch(API+'/api/tasks'+qs);
+    const d=await r.json();
+    if(!r.ok || d.ok===false) throw new Error(d.message||'加载失败');
+    render(d.data||[], d.count||0);
+  }catch(e){
+    list.innerHTML='<div class="empty"><div class="big">⚠</div><div>'+esc(e.message)+'</div></div>';
+  }
+}
+
+function render(items, count){
+  const list=$('list');
+  $('stats').textContent = count? `共 ${count} 条` : '还没有任务';
+
+  if(!items.length){
+    const empty = '<div class="empty"><div class="big">◌</div><div>这里还没有任务</div>'
+      + '<div style="font-size:13px;margin-top:6px">上面粘贴文字或上传截图试试</div></div>';
+    list.innerHTML = empty;
+    return empty;
+  }
+
+  // ★ 返回 HTML 字符串（不只是写进 DOM）—— 这样纯逻辑能被离线脚本验证，
+  //   不用真开浏览器就能测转义、徽章、空态这些容易出错的分支。
+  const html = items.map(t=>{
+    const done = t.status==='done';
+    // 时间徽章：已过期 / 有时间 / 未指定
+    let badge;
+    if(!t.deadline_at){
+      badge = '<span class="badge none">未指定时间</span>';
+    }else{
+      const dt=new Date(t.deadline_at);
+      const over = !done && dt.getTime() < Date.now();
+      const label = formatTime(dt, over);
+      badge = `<span class="badge ${over?'over':'time'}">${esc(label)}</span>`;
+    }
+    if(done) badge += ' <span class="badge done">已完成</span>';
+
+    // 有 deadline_raw 但换算失败时，把原文显示出来，用户能自己判断
+    const rawHint = (!t.deadline_at && t.deadline_raw)
+      ? `<div class="detail">原文提到「${esc(t.deadline_raw)}」，但没能换算成具体日期</div>` : '';
+
+    return `<div class="task ${done?'done':''}">
+      <div class="row1">
+        <div class="check" role="checkbox" aria-checked="${done}" tabindex="0"
+             aria-label="${done?'取消完成':'标记完成'}"
+             onclick="toggleTask(${t.id},'${done?'pending':'done'}')"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleTask(${t.id},'${done?'pending':'done'}')}">
+          <svg viewBox="0 0 24 24"><polyline points="4,12 9,17 20,6"/></svg>
+        </div>
+        <p class="title">${esc(t.title)}</p>
+      </div>
+      <div class="meta">${badge}</div>
+      ${t.detail? `<div class="detail">${esc(t.detail)}</div>` : ''}
+      ${rawHint}
+      <div class="acts">
+        <button class="del" onclick="delTask(${t.id})">删除</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.innerHTML = html;
+  return html;
+}
+
+function formatTime(dt, over){
+  const now=new Date();
+  const sameDay = dt.toDateString()===now.toDateString();
+  const tm = String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0');
+  if(sameDay) return (over?'已过期 · ':'')+'今天 '+tm;
+  const tmr = new Date(now.getTime()+86400000);
+  if(dt.toDateString()===tmr.toDateString()) return (over?'已过期 · ':'')+'明天 '+tm;
+  const md=(dt.getMonth()+1)+'月'+dt.getDate()+'日';
+  return (over?'已过期 · ':'')+md+' '+tm;
+}
+
+async function toggleTask(id, status){
+  try{
+    const r=await fetch(API+'/api/tasks?id='+id,{
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status})
+    });
+    const d=await r.json();
+    if(!r.ok||d.ok===false) throw new Error(d.message||'操作失败');
+    toast(status==='done'?'已打卡':'已取消');
+    loadTasks();
+  }catch(e){ toast(e.message||'操作失败'); }
+}
+
+async function delTask(id){
+  if(!confirm('确定删除这条任务？')) return;
+  try{
+    const r=await fetch(API+'/api/tasks?id='+id,{method:'DELETE'});
+    const d=await r.json();
+    if(!r.ok||d.ok===false) throw new Error(d.message||'删除失败');
+    toast('已删除');
+    loadTasks();
+  }catch(e){ toast(e.message||'删除失败'); }
+}
+
+/* ---------------- 启动 ---------------- */
+loadTasks();
+</script>
+</body>
+</html>

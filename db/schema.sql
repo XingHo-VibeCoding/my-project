@@ -3,7 +3,7 @@
 -- --------------------------------------------------------------------------
 -- ★ 本文件已在真实 CloudBase 数据库执行验证通过（2026-10-10）：
 --   建表 / 索引 / 视图全部成功；4 条约束（非法枚举、空标题、
---   状态与完成时间不一致、图片超 10MB）均确认会正确拦截脏数据。
+--   状态与完成时间不一致、图片超 3MB）均确认会正确拦截脏数据。
 --
 -- 对应需求：PRD.md「AI 日程整理工具」第四节 F4 标准日程表格输出
 --
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS sources (
     input_type      TEXT        NOT NULL,      -- 输入方式：text 粘贴文字 / image 上传截图
     raw_text        TEXT,                       -- OCR 识别出的文字；纯文本输入时等于原文
     image_path      TEXT,                       -- 图片存储路径；纯文本输入时为 NULL
-    image_size      INTEGER,                    -- 图片字节数，用于校验是否超 10 MB 上限
+    image_size      INTEGER,                    -- 图片字节数，用于校验是否超 3 MB 上限
     parse_status    TEXT        NOT NULL DEFAULT 'pending',
                                                -- pending 待解析 / ok 解析成功
                                                -- failed 解析失败（识别失败、AI 超时等）
@@ -56,9 +56,14 @@ CREATE TABLE IF NOT EXISTS sources (
     CONSTRAINT sources_parse_status_check
         CHECK (parse_status IN ('pending', 'ok', 'failed')),
 
-    -- 图片大小硬上限 10 MB（PRD 第七节：手机截图随手就 2-5 MB，10 MB 够用）
+    -- ★ 图片大小硬上限 3 MB（2026-10-17 实测修正，不是拍脑袋）
+    --   PRD 原写 10 MB，那是猜的。实测 CloudBase 网关请求体上限：
+    --     4 MB → 200 通过；4.5 MB → 413 EXCEED_MAX_PAYLOAD_SIZE
+    --   且 multipart 全文还要先 base64（膨胀 1.34 倍）才进 event.body，
+    --   所以原图 3 MB → base64 约 4.0 MB，刚好不撞线。
+    --   要支持更大的图得改走云存储，不是调大这个数。
     CONSTRAINT sources_image_size_check
-        CHECK (image_size IS NULL OR image_size <= 10485760)
+        CHECK (image_size IS NULL OR image_size <= 3145728)
 );
 
 COMMENT ON TABLE  sources IS '用户主动上传的原始内容：文字片段或截图（F1/F2 输入）';
@@ -66,7 +71,7 @@ COMMENT ON COLUMN sources.id            IS '主键，自增；tasks.source_id �
 COMMENT ON COLUMN sources.input_type    IS 'text=粘贴文字｜image=上传截图（PRD F1/F2 双输入）';
 COMMENT ON COLUMN sources.raw_text      IS 'OCR 识别出的文字；text 输入时为用户原文，image 输入时为识别结果';
 COMMENT ON COLUMN sources.image_path    IS '图片存储路径；text 输入时为 NULL';
-COMMENT ON COLUMN sources.image_size    IS '图片字节数；数据库层再挡一次 10 MB 上限';
+COMMENT ON COLUMN sources.image_size    IS '图片字节数；数据库层再挡一次 3 MB 上限（实测网关限制在4-4.5MB）';
 COMMENT ON COLUMN sources.parse_status  IS 'pending=待解析｜ok=解析成功｜failed=解析失败（失败必须留痕）';
 COMMENT ON COLUMN sources.error_message IS '失败原因；面向用户的提示文案，不要写内部堆栈';
 COMMENT ON COLUMN sources.created_at    IS '用户上传时刻';
