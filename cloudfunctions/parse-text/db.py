@@ -116,12 +116,47 @@ def delete(table, row_id):
 
 
 # ======================================================================
+# 用户标识（轻量个人口令）
+# ======================================================================
+# 为什么不做正式登录：个人自用场景下登录是纯摩擦（要手机验证、要记密码、
+# 忘了还得找回）。改用一串「个人口令」：首次访问自动生成，存在浏览器本地，
+# 之后每个请求都带上。同一口令的数据互通，不同口令互相看不见。
+#
+# ★ 安全边界要说清楚：这不是密码，是「命名空间分隔符」。
+#   知道别人的口令就能看到他的数据，所以口令要像密码一样保密。
+#   但它不防暴力破解（无锁定、无限流）—— 够个人自用，不适合公开服务。
+# ======================================================================
+DEFAULT_USER_CODE = "default"
+
+
+def normalize_code(raw):
+    """清洗个人口令。
+
+    ★ 为什么必须有长度与字符限制：
+      1) 防止超长字符串拼进 SQL查询串；
+      2) 防止含 & = 等 URL 特殊字符导致查询串被截断/错乱；
+      3) 防止某些字符导致 PostgREST 解析异常。
+    """
+    if not raw:
+        return None
+    code = str(raw).strip()
+    if not code or len(code) > 64:
+        return None
+    # 只保留字母数字和 - _ （个人口令足够表达）
+    if not all(ch.isalnum() or ch in "-_" for ch in code):
+        return None
+    return code
+
+
+# ======================================================================
 # 业务动作
 # ======================================================================
-def insert_source(input_type, raw_text=None, image_size=None, status="pending"):
-    """记一条用户上传的原始内容。"""
+def insert_source(user_code, input_type, raw_text=None, image_size=None,
+                  status="pending"):
+    """记一条用户上传的原始内容（★必须带 user_code，否则不知道是谁的）。"""
     return insert(
         "sources",
+        user_code=user_code,
         input_type=input_type,
         raw_text=raw_text,
         image_size=image_size,
@@ -130,7 +165,12 @@ def insert_source(input_type, raw_text=None, image_size=None, status="pending"):
 
 
 def mark_source_parsed(source_id, status, error_message=None):
-    """更新上传记录的解析状态。失败也要留痕（PRD 要求）。"""
+    """更新上传记录的解析状态。失败也要留痕（PRD 要求）。
+
+    ★ 这里故意【不】带 user_code 条件：source_id 是服务端刚写出来的自增值，
+      不存在被别人猜到后篡改的场景；而加条件反而可能因为码传错导致状态更新不了。
+      隔离在「谁能看到」这一层做，不在「内部状态流转」这一层做。
+    """
     update(
         "sources",
         source_id,
@@ -139,11 +179,21 @@ def mark_source_parsed(source_id, status, error_message=None):
     )
 
 
-def insert_task(source_id, title, detail=None, deadline_at=None, deadline_raw=None,
-                parsed_by=None):
-    """插入一条任务。"""
+def update_raw_text(source_id, raw_text):
+    """把识别/解析出的文字写回 sources.raw_text。
+
+    图片输入时：先插入一条只有 image_size 的记录（raw_text 还不知道），
+    识图完成后再回填文字 —— 原始输入必须留痕，AI 抽错了要能拿原文重跑。
+    """
+    return update("sources", source_id, raw_text=raw_text)
+
+
+def insert_task(user_code, source_id, title, detail=None, deadline_at=None,
+                deadline_raw=None, parsed_by=None):
+    """插入一条任务（★必须带 user_code）。"""
     return insert(
         "tasks",
+        user_code=user_code,
         source_id=source_id,
         title=title,
         detail=detail or "",
@@ -155,10 +205,15 @@ def insert_task(source_id, title, detail=None, deadline_at=None, deadline_raw=No
     )
 
 
-def list_tasks(status=None, limit=50):
-    """任务列表。status 为 None 时返回全部。"""
+def list_tasks(user_code, status=None, limit=50):
+    """★ 任务列表 —— 必须按 user_code 过滤。
+
+    2026-10-17 用户发现的问题：原来所有设备看到的是同一份日程、
+    还能互相改。加了这个参数后，不同 user_code 只能看到自己的数据。
+    """
     params = {
         "select": "id,title,deadline_at,deadline_raw,detail,status,created_at,completed_at",
+        "user_code": f"eq.{user_code}",       # ★ 数据隔离
         "order": "deadline_at.asc.nullslast,created_at.desc",
         "limit": str(limit),
     }
@@ -167,24 +222,31 @@ def list_tasks(status=None, limit=50):
     return select("tasks", **params)
 
 
-def get_task(task_id):
-    """按 id 取单条，找不到返回 None。"""
+def get_task(user_code, task_id):
+    """★ 按 id 取单条 —— 同时校验归属。
+
+    ★★ 这层校验至关重要（2026-10-17 加）：
+       即使别人猜到了 task_id（比如1），因为 user_code 不匹配，
+       这里会返回 None，接口报404 —— 他就看不到也改不了别人的任务。
+    """
     rows = select(
         "tasks",
         select="id,title,deadline_at,deadline_raw,detail,status,created_at,completed_at",
         id=f"eq.{task_id}",
+        user_code=f"eq.{user_code}",          # ★ 数据隔离
         limit="1",
     )
     return rows[0] if rows else None
 
 
-def today_todo():
-    """当日待办总表——直接走数据库视图，不在代码里拼时间条件。
+def today_todo(user_code):
+    """★ 当日待办总表 —— 按 user_code 过滤。
 
     视图定义见 db/schema.sql：有截止时间的按时间排，没时间的沉底。
     """
     return select(
         "v_today_todo",
         select="id,title,deadline_at,deadline_raw,detail,status,created_at,completed_at",
+        user_code=f"eq.{user_code}",          # ★ 数据隔离
         order="deadline_at.asc.nullslast,created_at.desc",
     )

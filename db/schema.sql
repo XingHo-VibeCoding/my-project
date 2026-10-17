@@ -39,6 +39,10 @@
 -- ==========================================================================
 CREATE TABLE IF NOT EXISTS sources (
     id              BIGSERIAL PRIMARY KEY,
+    -- ★ 用户标识（2026-10-17 加）：轻量个人口令。
+    --   没有正式登录体系，用一串个人码做数据隔离 —— 不同的人/设备用自己的码，
+    --   只能看到自己的数据。缺失值统一写成 'default'（历史数据归到默认空间）。
+    user_code       TEXT        NOT NULL DEFAULT 'default',
     input_type      TEXT        NOT NULL,      -- 输入方式：text 粘贴文字 / image 上传截图
     raw_text        TEXT,                       -- OCR 识别出的文字；纯文本输入时等于原文
     image_path      TEXT,                       -- 图片存储路径；纯文本输入时为 NULL
@@ -68,6 +72,7 @@ CREATE TABLE IF NOT EXISTS sources (
 
 COMMENT ON TABLE  sources IS '用户主动上传的原始内容：文字片段或截图（F1/F2 输入）';
 COMMENT ON COLUMN sources.id            IS '主键，自增；tasks.source_id 指向它';
+COMMENT ON COLUMN sources.user_code     IS '★用户标识：个人口令。同一码的数据互通，不同码互相看不见（PRD 改版补充）';
 COMMENT ON COLUMN sources.input_type    IS 'text=粘贴文字｜image=上传截图（PRD F1/F2 双输入）';
 COMMENT ON COLUMN sources.raw_text      IS 'OCR 识别出的文字；text 输入时为用户原文，image 输入时为识别结果';
 COMMENT ON COLUMN sources.image_path    IS '图片存储路径；text 输入时为 NULL';
@@ -78,6 +83,8 @@ COMMENT ON COLUMN sources.created_at    IS '用户上传时刻';
 
 CREATE INDEX IF NOT EXISTS idx_sources_created_at  ON sources (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sources_parse_status ON sources (parse_status);
+-- ★ 数据隔离查询：几乎每次都要按 user_code 过滤，这个索引必须有
+CREATE INDEX IF NOT EXISTS idx_sources_user_code   ON sources (user_code);
 
 
 -- ==========================================================================
@@ -97,6 +104,9 @@ CREATE INDEX IF NOT EXISTS idx_sources_parse_status ON sources (parse_status);
 -- ==========================================================================
 CREATE TABLE IF NOT EXISTS tasks (
     id              BIGSERIAL PRIMARY KEY,
+    -- ★ 用户标识（2026-10-17 加）：与 sources.user_code 一致，用于数据隔离。
+    --   不做正式登录（个人自用场景下登录是纯摩擦），用一串个人码即可隔离数据。
+    user_code       TEXT        NOT NULL DEFAULT 'default',
     source_id       BIGINT,                    -- 关联：指向 sources.id；手动补录的条目为 NULL
     title           TEXT        NOT NULL,      -- ★ 任务标题（必填，唯一不可空字段）
     deadline_at     TIMESTAMPTZ,               -- ★ 截止/执行时间；无时间信息时为 NULL，不猜测
@@ -130,6 +140,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 COMMENT ON TABLE  tasks IS 'AI 提取出的日程任务：这是本项目的核心表（PRD F4）';
 COMMENT ON COLUMN tasks.id            IS '主键，自增';
+COMMENT ON COLUMN tasks.user_code     IS '★用户标识：个人口令。所有读写都必须带这个条件，否则会串数据';
 COMMENT ON COLUMN tasks.source_id     IS '★ 关联 sources.id；用户手动补录的条目为 NULL（不来自任何上传）';
 COMMENT ON COLUMN tasks.title         IS '★ 任务标题（PRD 五个字段之一）；数据库层禁止空白标题';
 COMMENT ON COLUMN tasks.deadline_at   IS '★ 截止/执行时间（PRD 五个字段之二）；★ 无时间信息时为 NULL，不猜测';
@@ -147,6 +158,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_deadline_at  ON tasks (deadline_at ASC NULL
 -- 按录入时间倒序（历史回溯：最近上传的在最前）
 CREATE INDEX IF NOT EXISTS idx_tasks_created_at   ON tasks (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_source_id    ON tasks (source_id);
+-- ★ 数据隔离查询：列表、打卡、删除全部按 user_code + status 走
+CREATE INDEX IF NOT EXISTS idx_tasks_user_code     ON tasks (user_code, status);
 
 
 -- ==========================================================================
@@ -166,7 +179,12 @@ SELECT
     t.detail,
     t.status,
     t.created_at,
-    t.completed_at
+    t.completed_at,
+    -- ★ 必须带上 user_code（放最后）：视图不带就没法按用户过滤，
+    --会把所有人的日程混在一起（2026-10-17 用户发现的问题）
+    -- ★ 位置必须在最后：PostgreSQL 不允许 CREATE OR REPLACE 改变已有列名顺序，
+    --   改顺序会报 42P16，改的时候要先 DROP VIEW 再建。
+    t.user_code
 FROM tasks t
 WHERE
     -- 截止时间落在今天的

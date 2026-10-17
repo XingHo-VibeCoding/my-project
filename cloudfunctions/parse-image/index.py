@@ -49,7 +49,7 @@ def _json(status, payload):
         "headers": {
             "Content-Type": "application/json; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Headers": "Content-Type, X-User-Code",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
         },
         "body": json.dumps(payload, ensure_ascii=False),
@@ -59,6 +59,19 @@ def _json(status, payload):
 def _base():
     env = os.environ.get("TCB_ENV") or os.environ.get("SCF_NAMESPACE") or "unknown"
     return {"service": SERVICE, "fn": "parse-image", "env": env}
+
+
+def _user_code(event):
+    """取出并清洗个人口令（★ 数据隔离入口，见 tasks/index.py 同名函数的说明）。"""
+    headers = event.get("headers") or {}
+    raw = None
+    for k, v in headers.items():
+        if str(k).lower() == "x-user-code":
+            raw = v
+            break
+    if not raw:
+        raw = _params(event).get("code")
+    return db.normalize_code(raw)
 
 
 def _iso(dt):
@@ -110,6 +123,12 @@ def main_handler(event, context):
                            "error": "METHOD_NOT_ALLOWED",
                            "message": "请用 POST 请求"})
 
+    code = _user_code(event)
+    if not code:
+        return _json(400, {**info, "ok": False,
+                           "error": "NO_USER_CODE",
+                           "message": "缺少个人口令，请重新打开页面"})
+
     # ---------- 1. 取图片 ----------
     try:
         f = multipart.parse_file(event)
@@ -124,7 +143,7 @@ def main_handler(event, context):
     source_id = None
     try:
         source_id = db.insert_source(
-            "image", raw_text=None,
+            code, "image", raw_text=None,
             image_size=len(f["content"]), status="pending")
     except db.DBError as e:
         print(f"[warn] sources 落库失败：{e.code} {e.message}")
@@ -172,6 +191,7 @@ def main_handler(event, context):
             if deadline_at is None and t["time_raw"]:
                 print(f"[info] 时间未能换算，原文保留：{t['time_raw']!r}")
             saved.append(db.insert_task(
+                user_code=code,
                 source_id=source_id,
                 title=t["title"],
                 detail=t["detail"],
@@ -191,7 +211,7 @@ def main_handler(event, context):
     rows = []
     for tid in saved:
         try:
-            row = db.get_task(tid)
+            row = db.get_task(code, tid)
             if row:
                 rows.append(_format(row))
         except db.DBError:

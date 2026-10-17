@@ -47,7 +47,7 @@ def _json(status, payload):
             "Content-Type": "application/json; charset=utf-8",
             # CORS：静态托管站与云函数不同域，前端必须能跨域调
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Headers": "Content-Type, X-User-Code",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
         },
         "body": json.dumps(payload, ensure_ascii=False),
@@ -95,6 +95,12 @@ def main_handler(event, context):
                            "error": "METHOD_NOT_ALLOWED",
                            "message": "请用 POST 请求"})
 
+    code = _user_code(event)
+    if not code:
+        return _json(400, {**info, "ok": False,
+                           "error": "NO_USER_CODE",
+                           "message": "缺少个人口令，请重新打开页面"})
+
     payload = _parse_body(event)
     if not payload:
         return _json(400, {**info, "ok": False,
@@ -117,7 +123,8 @@ def main_handler(event, context):
     # ---------- 1. 先落原始内容（可追溯，PRD 要求原始输入不丢）----------
     source_id = None
     try:
-        source_id = db.insert_source("text", raw_text=raw_text, status="pending")
+        source_id = db.insert_source(code, "text", raw_text=raw_text,
+                                       status="pending")
     except db.DBError as e:
         # 数据库挂了不应该让整个功能瘫掉：照常解析，只是这批不落库
         print(f"[warn] sources 落库失败：{e.code} {e.message}")
@@ -150,6 +157,7 @@ def main_handler(event, context):
             if deadline_at is None and t["time_raw"]:
                 print(f"[info] 时间未能换算，原文保留：{t['time_raw']!r}")
             saved.append(db.insert_task(
+                user_code=code,
                 source_id=source_id,
                 title=t["title"],
                 detail=t["detail"],
@@ -170,7 +178,7 @@ def main_handler(event, context):
     rows = []
     for tid in saved:
         try:
-            row = db.get_task(tid)
+            row = db.get_task(code, tid)
             if row:
                 rows.append(_format(row))
         except db.DBError:
@@ -184,6 +192,19 @@ def main_handler(event, context):
         "count": len(rows),
         "data": rows,
     })
+
+
+def _user_code(event):
+    """取出并清洗个人口令（★ 数据隔离入口，见 tasks/index.py 同名函数的说明）。"""
+    headers = event.get("headers") or {}
+    raw = None
+    for k, v in headers.items():
+        if str(k).lower() == "x-user-code":
+            raw = v
+            break
+    if not raw:
+        raw = _params(event).get("code")
+    return db.normalize_code(raw)
 
 
 def _iso(dt):

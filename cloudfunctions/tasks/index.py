@@ -43,7 +43,7 @@ def _json(status, payload):
         "headers": {
             "Content-Type": "application/json; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Headers": "Content-Type, X-User-Code",
             "Access-Control-Allow-Methods": "GET, PATCH, DELETE, OPTIONS",
         },
         "body": json.dumps(payload, ensure_ascii=False),
@@ -53,6 +53,35 @@ def _json(status, payload):
 def _base():
     env = os.environ.get("TCB_ENV") or os.environ.get("SCF_NAMESPACE") or "unknown"
     return {"service": SERVICE, "fn": "tasks", "env": env}
+
+
+def _user_code(event):
+    """取出并清洗个人口令。
+
+    ★ 数据隔离的入口（2026-10-17 加）：
+      原来所有设备看到同一份日程且能互相改，根因是 tasks 表没有用户字段。
+      现在每个请求必须带 code（请求头 X-User-Code 或 ?code=），
+      拿不到就报 400——宁可报错，也不能让它看到所有人的数据。
+    """
+    headers = event.get("headers") or {}
+    raw = None
+    for k, v in headers.items():
+        if str(k).lower() == "x-user-code":
+            raw = v
+            break
+    if not raw:
+        raw = _params(event).get("code")
+    return db.normalize_code(raw)
+
+
+def _need_code(event):
+    """取口令，取不到就返回错误响应（返回 dict 时表示要中断）。"""
+    code = _user_code(event)
+    if not code:
+        return None, _json(400, {**_base(), "ok": False,
+                                "error": "NO_USER_CODE",
+                                "message": "缺少个人口令，请重新打开页面"})
+    return code, None
 
 
 def _iso(v):
@@ -138,10 +167,16 @@ def main_handler(event, context):
     method = str(event.get("httpMethod", "GET")).upper()
     params = _params(event)
 
+    # OPTIONS 预检不放行检查（浏览器会先发它，那时还没带口令）
+    if method != "OPTIONS":
+        code, err = _need_code(event)
+        if err:
+            return err
+
     # ---------- 今日待办：走数据库视图，不在代码里拼时间条件 ----------
     if method == "GET" and _is_today(event, params):
         try:
-            rows = db.today_todo()
+            rows = db.today_todo(code)
             data = [_format(r) for r in rows if r]
             return _json(200, {**info, "ok": True, "count": len(data), "data": data})
         except db.DBError as e:
@@ -154,7 +189,7 @@ def main_handler(event, context):
             return _json(400, {**info, "ok": False, "error": "EMPTY_INPUT",
                                "message": "缺少任务 id"})
         try:
-            if not db.get_task(tid):
+            if not db.get_task(code, tid):
                 return _json(404, {**info, "ok": False, "error": "NOT_FOUND",
                                    "message": "任务不存在或已删除"})
             db.delete("tasks", tid)
@@ -198,11 +233,11 @@ def main_handler(event, context):
                                "message": "没有要修改的内容"})
 
         try:
-            if not db.get_task(tid):
+            if not db.get_task(code, tid):
                 return _json(404, {**info, "ok": False, "error": "NOT_FOUND",
                                    "message": "任务不存在或已删除"})
             db.update("tasks", tid, **fields)
-            return _json(200, {**info, "ok": True, "data": _format(db.get_task(tid))})
+            return _json(200, {**info, "ok": True, "data": _format(db.get_task(code, tid))})
         except (db.DBError, ValueError):
             return _json(400, {**info, "ok": False, "error": "EMPTY_INPUT",
                                "message": "参数不合法"})
@@ -210,7 +245,7 @@ def main_handler(event, context):
     # ---------- GET：任务列表 ----------
     if method == "GET":
         try:
-            rows = db.list_tasks(status=params.get("status"),
+            rows = db.list_tasks(code, status=params.get("status"),
                                  limit=_read_limit(params))
             data = [_format(r) for r in rows if r]
             return _json(200, {**info, "ok": True, "count": len(data), "data": data})
